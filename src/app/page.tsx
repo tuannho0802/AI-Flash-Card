@@ -11,21 +11,14 @@ import {
   BrainCircuit,
   History,
   CheckCircle,
+  LogIn,
 } from "lucide-react";
-import Flashcard from "@/components/Flashcard";
+import FlashcardComponent from "@/components/Flashcard";
 import { supabase } from "@/lib/supabase";
-
-interface FlashcardData {
-  front: string;
-  back: string;
-}
-
-interface FlashcardSet {
-  id: string;
-  topic: string;
-  cards: FlashcardData[];
-  created_at: string;
-}
+import {
+  Flashcard,
+  FlashcardSet,
+} from "@/types/flashcard";
 
 interface RateLimitError {
   code: number;
@@ -51,7 +44,7 @@ const isRateLimitError = (
 export default function Home() {
   const [topic, setTopic] = useState("");
   const [flashcards, setFlashcards] = useState<
-    FlashcardData[]
+    Flashcard[]
   >([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<
@@ -65,6 +58,32 @@ export default function Home() {
   >([]);
   const [savedSuccess, setSavedSuccess] =
     useState(false);
+  const [quantity, setQuantity] = useState(5);
+
+  // Fisher-Yates Shuffle
+  const shuffleArray = <T,>(
+    array: T[],
+  ): T[] => {
+    const newArray = [...array];
+    for (
+      let i = newArray.length - 1;
+      i > 0;
+      i--
+    ) {
+      const j = Math.floor(
+        Math.random() * (i + 1),
+      );
+      [newArray[i], newArray[j]] = [
+        newArray[j],
+        newArray[i],
+      ];
+    }
+    return newArray;
+  };
+
+  const handleShuffle = () => {
+    setFlashcards((prev) => shuffleArray(prev));
+  };
 
   // Fetch recent sets on mount
   useEffect(() => {
@@ -134,32 +153,128 @@ export default function Home() {
           "Found in DB:",
           existingData,
         );
-        setFlashcards(
-          existingData.cards as FlashcardData[],
-        );
-        setSavedSuccess(true); // Technically not "saved" now, but "loaded" successfully
-        setLoading(false);
-        return;
+        const existingCards =
+          existingData.cards as Flashcard[];
+
+        if (existingCards.length >= quantity) {
+          // Case 1: DB has enough cards. Shuffle and display.
+          console.log(
+            `Found ${existingCards.length} cards in DB, requested ${quantity}. No API call needed.`,
+          );
+          const subset = shuffleArray(
+            existingCards,
+          ).slice(0, quantity);
+          setFlashcards(subset);
+          setSavedSuccess(true);
+          setLoading(false);
+          return;
+        } else {
+          // Case 2: DB has fewer cards. Append new ones.
+          const needed =
+            quantity - existingCards.length;
+          console.log(
+            `Found ${existingCards.length} cards in DB, need to create ${needed} more.`,
+          );
+
+          // Call API for missing cards (skipDb = true)
+          const res = await fetch(
+            "/api/generate",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+              body: JSON.stringify({
+                topic,
+                count: needed,
+                skipDb: true,
+              }),
+            },
+          );
+
+          if (!res.ok)
+            throw new Error(
+              "Failed to fetch additional cards",
+            );
+
+          const data = await res.json();
+          let newCards: Flashcard[] = [];
+
+          if (Array.isArray(data))
+            newCards = data;
+          else if (
+            data.flashcards &&
+            Array.isArray(data.flashcards)
+          )
+            newCards = data.flashcards;
+          else newCards = [];
+
+          if (newCards.length > 0) {
+            const mergedCards = [
+              ...existingCards,
+              ...newCards,
+            ];
+
+            // Update Supabase
+            // Use ID if available (safer), but user mentioned .eq('topic', topic).
+            // Since we have existingData.id, we use that for precise update.
+            const { error: updateError } =
+              await supabase
+                .from("flashcard_sets")
+                .update({ cards: mergedCards })
+                .eq("id", existingData.id);
+
+            if (updateError) {
+              console.error(
+                "Update Error:",
+                updateError,
+              );
+              setError({
+                message:
+                  "Updated cards locally, but failed to save to DB.",
+                details: updateError,
+              });
+            } else {
+              console.log(
+                "Supabase Updated with merged cards",
+              );
+              setSavedSuccess(true);
+            }
+
+            setFlashcards(mergedCards);
+          } else {
+            console.warn(
+              "AI returned no cards to append.",
+            );
+            setFlashcards(existingCards);
+          }
+          setLoading(false);
+          return;
+        }
       }
 
       if (
         dbError &&
         dbError.code !== "PGRST116"
       ) {
-        // PGRST116 is "Row not found", which is fine. Other errors should be logged.
         console.warn(
           "DB Check Error:",
           dbError,
         );
       }
 
-      // Step B: Call AI & Save
+      // Step B: Call AI & Save (New Topic)
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ topic }),
+        body: JSON.stringify({
+          topic,
+          count: quantity,
+          skipDb: false,
+        }),
       });
 
       if (!res.ok) {
@@ -190,7 +305,7 @@ export default function Home() {
       }
 
       const data = await res.json();
-      let cards: FlashcardData[] = [];
+      let cards: Flashcard[] = [];
 
       if (Array.isArray(data)) {
         cards = data;
@@ -209,10 +324,20 @@ export default function Home() {
 
       setFlashcards(cards);
 
-      // Handle Saved State
+      // Handle Saved State & Errors
       if (data.id) {
         setSavedSuccess(true);
         fetchRecentSets(); // Refresh history
+      } else if (data.dbError) {
+        console.error(
+          "Supabase Insert Error from API:",
+          data.dbError,
+        );
+        setError({
+          message:
+            "Generated successfully, but failed to save to database.",
+          details: data.dbError,
+        });
       }
     } catch (err: unknown) {
       let errorInfo: string | object =
@@ -269,7 +394,13 @@ export default function Home() {
     <main className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-300">
       <div className="container mx-auto px-4 py-12 max-w-5xl">
         {/* Header */}
-        <div className="text-center mb-12">
+        <div className="relative text-center mb-12">
+          {/* Login Button (Mock UI) */}
+          <button className="absolute top-0 right-0 hidden md:flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors shadow-sm">
+            <LogIn className="w-4 h-4" />
+            Login with Google
+          </button>
+
           <div className="flex justify-center mb-4">
             <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-full">
               <BrainCircuit className="w-10 h-10 text-blue-600 dark:text-blue-400" />
@@ -313,6 +444,100 @@ export default function Home() {
               )}
             </button>
           </div>
+
+          {/* Controls: Quantity & Shuffle */}
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-4 animate-fade-in-up">
+            <div className="flex items-center gap-2 bg-white dark:bg-gray-800 p-2 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+              <span className="text-sm font-medium text-gray-600 dark:text-gray-300 ml-2">
+                Quantity:
+              </span>
+              <select
+                value={quantity}
+                onChange={(e) =>
+                  setQuantity(
+                    Number(e.target.value),
+                  )
+                }
+                disabled={loading}
+                className="bg-transparent border-none focus:ring-0 text-sm font-bold text-blue-600 dark:text-blue-400 cursor-pointer"
+              >
+                <option value={5}>
+                  5 cards
+                </option>
+                <option value={10}>
+                  10 cards
+                </option>
+                <option value={15}>
+                  15 cards
+                </option>
+                <option value={20}>
+                  20 cards
+                </option>
+                {![5, 10, 15, 20].includes(
+                  quantity,
+                ) && (
+                  <option value={quantity}>
+                    Custom
+                  </option>
+                )}
+              </select>
+
+              <div className="w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1"></div>
+
+              <input
+                type="number"
+                min="1"
+                max="100"
+                value={quantity || ""}
+                onChange={(e) => {
+                  const val = parseInt(
+                    e.target.value,
+                  );
+                  if (!isNaN(val) && val > 0)
+                    setQuantity(val);
+                  else if (
+                    e.target.value === ""
+                  )
+                    setQuantity(0);
+                }}
+                onBlur={() => {
+                  if (
+                    !quantity ||
+                    quantity === 0
+                  )
+                    setQuantity(5);
+                }}
+                className="w-16 bg-transparent text-center text-sm font-bold focus:outline-none focus:text-blue-600 dark:focus:text-blue-400"
+                placeholder="#"
+              />
+            </div>
+
+            {flashcards.length > 0 && (
+              <button
+                onClick={handleShuffle}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 rounded-lg hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors text-sm font-medium"
+              >
+                <History className="w-4 h-4" />{" "}
+                {/* Reusing History icon as Shuffle icon for now or can import Shuffle */}
+                Shuffle Cards
+              </button>
+            )}
+          </div>
+
+          {quantity > 100 ? (
+            <p className="mt-2 text-xs text-center text-red-600 dark:text-red-400 font-bold">
+              ⛔ Giới hạn tối đa là 100 thẻ để
+              tránh lỗi Timeout.
+            </p>
+          ) : (
+            quantity > 15 && (
+              <p className="mt-2 text-xs text-center text-amber-600 dark:text-amber-400">
+                ⚠️ Lưu ý: Số lượng thẻ lớn có
+                thể mất nhiều thời gian hơn để
+                AI xử lý.
+              </p>
+            )
+          )}
 
           {/* Saved Success Message */}
           {savedSuccess && (
@@ -387,7 +612,7 @@ export default function Home() {
         {flashcards.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {flashcards.map((card, index) => (
-              <Flashcard
+              <FlashcardComponent
                 key={index}
                 front={card.front}
                 back={card.back}

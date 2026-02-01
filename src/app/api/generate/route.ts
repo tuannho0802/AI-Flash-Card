@@ -10,7 +10,7 @@ export async function POST(req: Request) {
         }
 
         const body = await req.json();
-        const { topic } = body;
+        const { topic, count = 5, skipDb = false } = body;
 
         if (!topic) {
             return Response.json({ error: "Topic is required" }, { status: 400 });
@@ -20,7 +20,7 @@ export async function POST(req: Request) {
         const genAI = new GoogleGenAI({ apiKey, apiVersion: 'v1beta' });
 
         // Prompt engineering: Explicitly request raw JSON and define structure
-        const prompt = `Create 5 educational flashcards about the topic: "${topic}". 
+        const prompt = `Create ${count} educational flashcards about the topic: "${topic}". 
         Language: Vietnamese.
         Return ONLY a raw JSON array. 
         Do not include markdown formatting (like \`\`\`json).
@@ -71,34 +71,42 @@ export async function POST(req: Request) {
             throw new Error(`Failed to parse AI response: ${(parseError as Error).message}`);
         }
 
-        // Save to Supabase
+        // Save to Supabase (only if skipDb is false)
         let savedId = null;
-        try {
-            console.log("Attempting to insert into Supabase:", { topic, cardsCount: data.length });
-            const { data: insertedData, error: insertError } = await supabase
-                .from('flashcard_sets')
-                .insert([
-                    { topic: topic, cards: data }
-                ])
-                .select('id')
-                .single();
+        let dbErrorDetail = null;
 
-            if (insertError) {
-                console.error("Supabase Insert Failed:", {
-                    code: insertError.code,
-                    message: insertError.message,
-                    details: insertError.details,
-                    hint: insertError.hint
-                });
-            } else if (insertedData) {
-                console.log("Supabase Insert Success. ID:", insertedData.id);
-                savedId = insertedData.id;
+        if (!skipDb) {
+            try {
+                console.log("Attempting to insert into Supabase:", { topic, cardsCount: data.length });
+                const { data: insertedData, error: insertError } = await supabase
+                    .from('flashcard_sets')
+                    .insert([
+                        { topic: topic, cards: data }
+                    ])
+                    .select('id')
+                    .single();
+
+                console.log("Supabase Response:", insertedData, insertError);
+
+                if (insertError) {
+                    console.error("Supabase Insert Failed:", {
+                        code: insertError.code,
+                        message: insertError.message,
+                        details: insertError.details,
+                        hint: insertError.hint
+                    });
+                    dbErrorDetail = insertError;
+                } else if (insertedData) {
+                    console.log("Supabase Insert Success. ID:", insertedData.id);
+                    savedId = insertedData.id;
+                }
+            } catch (dbError) {
+                console.error("Supabase Unexpected Exception:", dbError);
+                dbErrorDetail = dbError;
             }
-        } catch (dbError) {
-            console.error("Supabase Unexpected Exception:", dbError);
         }
 
-        return Response.json({ flashcards: data, id: savedId });
+        return Response.json({ flashcards: data, id: savedId, dbError: dbErrorDetail });
 
     } catch (error: unknown) {
         console.error("API Error Full Object:", JSON.stringify(error, null, 2));
