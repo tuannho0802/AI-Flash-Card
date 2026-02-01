@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import { supabase } from "@/lib/supabase";
 
 export async function POST(req: Request) {
     try {
@@ -70,7 +71,34 @@ export async function POST(req: Request) {
             throw new Error(`Failed to parse AI response: ${(parseError as Error).message}`);
         }
 
-        return Response.json(data);
+        // Save to Supabase
+        let savedId = null;
+        try {
+            console.log("Attempting to insert into Supabase:", { topic, cardsCount: data.length });
+            const { data: insertedData, error: insertError } = await supabase
+                .from('flashcard_sets')
+                .insert([
+                    { topic: topic, cards: data }
+                ])
+                .select('id')
+                .single();
+
+            if (insertError) {
+                console.error("Supabase Insert Failed:", {
+                    code: insertError.code,
+                    message: insertError.message,
+                    details: insertError.details,
+                    hint: insertError.hint
+                });
+            } else if (insertedData) {
+                console.log("Supabase Insert Success. ID:", insertedData.id);
+                savedId = insertedData.id;
+            }
+        } catch (dbError) {
+            console.error("Supabase Unexpected Exception:", dbError);
+        }
+
+        return Response.json({ flashcards: data, id: savedId });
 
     } catch (error: unknown) {
         console.error("API Error Full Object:", JSON.stringify(error, null, 2));

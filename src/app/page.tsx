@@ -9,12 +9,22 @@ import {
   Loader2,
   Sparkles,
   BrainCircuit,
+  History,
+  CheckCircle,
 } from "lucide-react";
 import Flashcard from "@/components/Flashcard";
+import { supabase } from "@/lib/supabase";
 
 interface FlashcardData {
   front: string;
   back: string;
+}
+
+interface FlashcardSet {
+  id: string;
+  topic: string;
+  cards: FlashcardData[];
+  created_at: string;
 }
 
 interface RateLimitError {
@@ -50,6 +60,28 @@ export default function Home() {
   const [countdown, setCountdown] = useState<
     number | null
   >(null);
+  const [recentSets, setRecentSets] = useState<
+    FlashcardSet[]
+  >([]);
+  const [savedSuccess, setSavedSuccess] =
+    useState(false);
+
+  // Fetch recent sets on mount
+  useEffect(() => {
+    fetchRecentSets();
+  }, []);
+
+  const fetchRecentSets = async () => {
+    const { data } = await supabase
+      .from("flashcard_sets")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(8);
+
+    if (data) {
+      setRecentSets(data as FlashcardSet[]);
+    }
+  };
 
   // Countdown effect
   useEffect(() => {
@@ -65,6 +97,17 @@ export default function Home() {
     return () => clearInterval(timer);
   }, [countdown]);
 
+  // Clear saved success message after 3 seconds
+  useEffect(() => {
+    if (savedSuccess) {
+      const timer = setTimeout(
+        () => setSavedSuccess(false),
+        3000,
+      );
+      return () => clearTimeout(timer);
+    }
+  }, [savedSuccess]);
+
   const generateFlashcards = async () => {
     if (!topic.trim()) return;
 
@@ -72,8 +115,45 @@ export default function Home() {
     setError(null);
     setCountdown(null);
     setFlashcards([]);
+    setSavedSuccess(false);
 
     try {
+      // Step A: Check DB First
+      const {
+        data: existingData,
+        error: dbError,
+      } = await supabase
+        .from("flashcard_sets")
+        .select("*")
+        .ilike("topic", topic.trim())
+        .limit(1)
+        .single();
+
+      if (existingData) {
+        console.log(
+          "Found in DB:",
+          existingData,
+        );
+        setFlashcards(
+          existingData.cards as FlashcardData[],
+        );
+        setSavedSuccess(true); // Technically not "saved" now, but "loaded" successfully
+        setLoading(false);
+        return;
+      }
+
+      if (
+        dbError &&
+        dbError.code !== "PGRST116"
+      ) {
+        // PGRST116 is "Row not found", which is fine. Other errors should be logged.
+        console.warn(
+          "DB Check Error:",
+          dbError,
+        );
+      }
+
+      // Step B: Call AI & Save
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: {
@@ -86,8 +166,6 @@ export default function Home() {
         const errorData = await res
           .json()
           .catch(() => ({}));
-
-        // Handle Rate Limit (429) specifically
         if (
           res.status === 429 ||
           errorData.error === "rate_limit"
@@ -104,8 +182,6 @@ export default function Home() {
             }),
           );
         }
-
-        // Store full error object for debugging
         const fullError =
           errorData.error || errorData;
         throw new Error(
@@ -114,27 +190,35 @@ export default function Home() {
       }
 
       const data = await res.json();
+      let cards: FlashcardData[] = [];
 
       if (Array.isArray(data)) {
-        setFlashcards(data);
+        cards = data;
       } else if (
         data.flashcards &&
         Array.isArray(data.flashcards)
       ) {
-        // Fallback if API returns { flashcards: [...] }
-        setFlashcards(data.flashcards);
+        cards = data.flashcards;
       } else {
-        // Attempt to extract if it's just the items directly or inside an object
-        // Based on our schema, it should be an array.
-        setFlashcards(data);
+        console.warn(
+          "Unexpected API response format:",
+          data,
+        );
+        cards = [];
+      }
+
+      setFlashcards(cards);
+
+      // Handle Saved State
+      if (data.id) {
+        setSavedSuccess(true);
+        fetchRecentSets(); // Refresh history
       }
     } catch (err: unknown) {
       let errorInfo: string | object =
         "Something went wrong.";
-
       if (err instanceof Error) {
         try {
-          // Try to parse the error message back to JSON if it was stringified
           errorInfo = JSON.parse(err.message);
         } catch {
           errorInfo = err.message;
@@ -146,13 +230,18 @@ export default function Home() {
         errorInfo = err;
       }
 
-      // Check if it's our custom 429 error object
       if (isRateLimitError(errorInfo)) {
-        setError(errorInfo.message);
+        setError(errorInfo);
+        if (
+          typeof errorInfo.retryDelay ===
+          "number"
+        ) {
+          setCountdown(errorInfo.retryDelay);
+        }
       } else {
         setError(errorInfo);
+        setCountdown(null);
       }
-
       console.error(err);
     } finally {
       setLoading(false);
@@ -160,9 +249,20 @@ export default function Home() {
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Enter") {
-      generateFlashcards();
-    }
+    if (e.key === "Enter") generateFlashcards();
+  };
+
+  const loadFromHistory = (
+    set: FlashcardSet,
+  ) => {
+    setTopic(set.topic);
+    setFlashcards(set.cards);
+    setError(null);
+    setSavedSuccess(false);
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
   };
 
   return (
@@ -213,9 +313,37 @@ export default function Home() {
               )}
             </button>
           </div>
+
+          {/* Saved Success Message */}
+          {savedSuccess && (
+            <div className="mt-2 flex items-center justify-center text-green-600 dark:text-green-400 animate-fade-in">
+              <CheckCircle className="w-4 h-4 mr-2" />
+              <span className="text-sm font-medium">
+                Saved to Database
+              </span>
+            </div>
+          )}
+
           {error && (
-            <div className="mt-4 text-center text-red-500 font-medium animate-pulse overflow-auto max-h-60 bg-red-50 dark:bg-red-900/20 p-4 rounded-lg">
-              {typeof error === "string" ? (
+            <div
+              className={`mt-4 text-center font-medium animate-pulse overflow-auto max-h-60 p-4 rounded-lg ${
+                isRateLimitError(error)
+                  ? "bg-yellow-50 text-yellow-700 border border-yellow-200 dark:bg-yellow-900/20 dark:text-yellow-400"
+                  : "text-red-500 bg-red-50 dark:bg-red-900/20"
+              }`}
+            >
+              {isRateLimitError(error) ? (
+                <div>
+                  <p>{error.message}</p>
+                  {countdown !== null &&
+                    countdown > 0 && (
+                      <p className="text-sm mt-1 font-bold">
+                        Thử lại sau: {countdown}
+                        s
+                      </p>
+                    )}
+                </div>
+              ) : typeof error === "string" ? (
                 error
               ) : (
                 <pre className="text-left text-xs whitespace-pre-wrap font-mono">
@@ -226,6 +354,31 @@ export default function Home() {
                   )}
                 </pre>
               )}
+            </div>
+          )}
+
+          {/* Recent Topics */}
+          {recentSets.length > 0 && (
+            <div className="mt-8">
+              <div className="flex items-center gap-2 mb-3 text-gray-500 dark:text-gray-400">
+                <History className="w-4 h-4" />
+                <span className="text-sm font-medium uppercase tracking-wider">
+                  Recent Topics
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {recentSets.map((set) => (
+                  <button
+                    key={set.id}
+                    onClick={() =>
+                      loadFromHistory(set)
+                    }
+                    className="px-3 py-1.5 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full hover:border-blue-500 dark:hover:border-blue-500 transition-colors shadow-sm"
+                  >
+                    {set.topic}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
