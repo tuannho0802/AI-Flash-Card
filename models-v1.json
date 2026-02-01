@@ -1,0 +1,187 @@
+{
+  "pageInternal": [
+    {
+      "name": "models/gemini-2.5-flash",
+      "displayName": "Gemini 2.5 Flash",
+      "description": "Stable version of Gemini 2.5 Flash, our mid-size multimodal model that supports up to 1 million tokens, released in June of 2025.",
+      "version": "001",
+      "tunedModelInfo": {},
+      "inputTokenLimit": 1048576,
+      "outputTokenLimit": 65536,
+      "supportedActions": [
+        "generateContent",
+        "countTokens",
+        "createCachedContent",
+        "batchGenerateContent"
+      ],
+      "temperature": 1,
+      "maxTemperature": 2,
+      "topP": 0.95,
+      "topK": 64,
+      "thinking": true
+    },
+    {
+      "name": "models/gemini-2.5-pro",
+      "displayName": "Gemini 2.5 Pro",
+      "description": "Stable release (June 17th, 2025) of Gemini 2.5 Pro",
+      "version": "2.5",
+      "tunedModelInfo": {},
+      "inputTokenLimit": 1048576,
+      "outputTokenLimit": 65536,
+      "supportedActions": [
+        "generateContent",
+        "countTokens",
+        "createCachedContent",
+        "batchGenerateContent"
+      ],
+      "temperature": 1,
+      "maxTemperature": 2,
+      "topP": 0.95,
+      "topK": 64,
+      "thinking": true
+    },
+    {
+      "name": "models/gemini-2.0-flash",
+      "displayName": "Gemini 2.0 Flash",
+      "description": "Gemini 2.0 Flash",
+      "version": "2.0",
+      "tunedModelInfo": {},
+      "inputTokenLimit": 1048576,
+      "outputTokenLimit": 8192,
+      "supportedActions": [
+        "generateContent",
+        "countTokens",
+        "createCachedContent",
+        "batchGenerateContent"
+      ],
+      "temperature": 1,
+      "maxTemperature": 2,
+      "topP": 0.95,
+      "topK": 40
+    },
+    {
+      "name": "models/gemini-2.0-flash-001",
+      "displayName": "Gemini 2.0 Flash 001",
+      "description": "Stable version of Gemini 2.0 Flash, our fast and versatile multimodal model for scaling across diverse tasks, released in January of 2025.",
+      "version": "2.0",
+      "tunedModelInfo": {},
+      "inputTokenLimit": 1048576,
+      "outputTokenLimit": 8192,
+      "supportedActions": [
+        "generateContent",
+        "countTokens",
+        "createCachedContent",
+        "batchGenerateContent"
+      ],
+      "temperature": 1,
+      "maxTemperature": 2,
+      "topP": 0.95,
+      "topK": 40
+    },
+    {
+      "name": "models/gemini-2.0-flash-lite-001",
+      "displayName": "Gemini 2.0 Flash-Lite 001",
+      "description": "Stable version of Gemini 2.0 Flash-Lite",
+      "version": "2.0",
+      "tunedModelInfo": {},
+      "inputTokenLimit": 1048576,
+      "outputTokenLimit": 8192,
+      "supportedActions": [
+        "generateContent",
+        "countTokens",
+        "createCachedContent",
+        "batchGenerateContent"
+      ],
+      "temperature": 1,
+      "maxTemperature": 2,
+      "topP": 0.95,
+      "topK": 40
+    },
+    {
+      "name": "models/gemini-2.0-flash-lite",
+      "displayName": "Gemini 2.0 Flash-Lite",
+      "description": "Gemini 2.0 Flash-Lite",
+      "version": "2.0",
+      "tunedModelInfo": {},
+      "inputTokenLimit": 1048576,
+      "outputTokenLimit": 8192,
+      "supportedActions": [
+        "generateContent",
+        "countTokens",
+        "createCachedContent",
+        "batchGenerateContent"
+      ],
+      "temperature": 1,
+      "maxTemperature": 2,
+      "topP": 0.95,
+      "topK": 40
+    },
+    {
+      "name": "models/gemini-2.5-flash-lite",
+      "displayName": "Gemini 2.5 Flash-Lite",
+      "description": "Stable version of Gemini 2.5 Flash-Lite, released in July of 2025",
+      "version": "001",
+      "tunedModelInfo": {},
+      "inputTokenLimit": 1048576,
+      "outputTokenLimit": 65536,
+      "supportedActions": [
+        "generateContent",
+        "countTokens",
+        "createCachedContent",
+        "batchGenerateContent"
+      ],
+      "temperature": 1,
+      "maxTemperature": 2,
+      "topP": 0.95,
+      "topK": 64,
+      "thinking": true
+    },
+    {
+      "name": "models/embedding-001",
+      "displayName": "Embedding 001",
+      "description": "Obtain a distributed representation of a text.",
+      "version": "001",
+      "tunedModelInfo": {},
+      "inputTokenLimit": 2048,
+      "outputTokenLimit": 1,
+      "supportedActions": [
+        "embedContent"
+      ]
+    },
+    {
+      "name": "models/text-embedding-004",
+      "displayName": "Text Embedding 004",
+      "description": "Obtain a distributed representation of a text.",
+      "version": "004",
+      "tunedModelInfo": {},
+      "inputTokenLimit": 2048,
+      "outputTokenLimit": 1,
+      "supportedActions": [
+        "embedContent"
+      ]
+    }
+  ],
+  "paramsInternal": {
+    "config": {
+      "queryBase": true
+    }
+  },
+  "nameInternal": "models",
+  "sdkHttpResponseInternal": {
+    "headers": {
+      "alt-svc": "h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000",
+      "content-encoding": "gzip",
+      "content-type": "application/json; charset=UTF-8",
+      "date": "Sun, 01 Feb 2026 04:55:36 GMT",
+      "server": "scaffolding on HTTPServer2",
+      "server-timing": "gfet4t7; dur=15",
+      "transfer-encoding": "chunked",
+      "vary": "Origin, X-Origin, Referer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "SAMEORIGIN",
+      "x-xss-protection": "0"
+    }
+  },
+  "idxInternal": 0,
+  "pageInternalSize": 9
+}
