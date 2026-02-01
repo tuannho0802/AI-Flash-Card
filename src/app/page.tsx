@@ -13,12 +13,19 @@ import {
   CheckCircle,
   LogIn,
 } from "lucide-react";
-import FlashcardComponent from "@/components/Flashcard";
 import { supabase } from "@/lib/supabase";
 import {
   Flashcard,
   FlashcardSet,
 } from "@/types/flashcard";
+
+// Display Modes
+import GridMode from "@/components/display-modes/GridMode";
+import StudyMode from "@/components/display-modes/StudyMode";
+import ListMode from "@/components/display-modes/ListMode";
+import DisplayController, {
+  DisplayMode,
+} from "@/components/DisplayController";
 
 interface RateLimitError {
   code: number;
@@ -59,6 +66,35 @@ export default function Home() {
   const [savedSuccess, setSavedSuccess] =
     useState(false);
   const [quantity, setQuantity] = useState(5);
+
+  // Display Mode State
+  const [mode, setMode] =
+    useState<DisplayMode>("grid");
+
+  // Load saved mode preference
+  useEffect(() => {
+    const savedMode = localStorage.getItem(
+      "displayMode",
+    ) as DisplayMode;
+    if (
+      savedMode &&
+      ["grid", "study", "list"].includes(
+        savedMode,
+      )
+    ) {
+      setMode(savedMode);
+    }
+  }, []);
+
+  const handleModeChange = (
+    newMode: DisplayMode,
+  ) => {
+    setMode(newMode);
+    localStorage.setItem(
+      "displayMode",
+      newMode,
+    );
+  };
 
   // Fisher-Yates Shuffle
   const shuffleArray = <T,>(
@@ -217,8 +253,6 @@ export default function Home() {
             ];
 
             // Update Supabase
-            // Use ID if available (safer), but user mentioned .eq('topic', topic).
-            // Since we have existingData.id, we use that for precise update.
             const { error: updateError } =
               await supabase
                 .from("flashcard_sets")
@@ -392,7 +426,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-300">
-      <div className="container mx-auto px-4 py-12 max-w-5xl">
+      <div className="container mx-auto px-4 py-12 max-w-6xl">
         {/* Header */}
         <div className="relative text-center mb-12">
           {/* Login Button (Mock UI) */}
@@ -402,7 +436,7 @@ export default function Home() {
           </button>
 
           <div className="flex justify-center mb-4">
-            <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-full">
+            <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-full animate-bounce-slow">
               <BrainCircuit className="w-10 h-10 text-blue-600 dark:text-blue-400" />
             </div>
           </div>
@@ -517,8 +551,7 @@ export default function Home() {
                 onClick={handleShuffle}
                 className="flex items-center gap-2 px-4 py-2 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 rounded-lg hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors text-sm font-medium"
               >
-                <History className="w-4 h-4" />{" "}
-                {/* Reusing History icon as Shuffle icon for now or can import Shuffle */}
+                <History className="w-4 h-4" />
                 Shuffle Cards
               </button>
             )}
@@ -608,16 +641,36 @@ export default function Home() {
           )}
         </div>
 
-        {/* Grid Section */}
+        {/* Results Section with Display Modes */}
         {flashcards.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {flashcards.map((card, index) => (
-              <FlashcardComponent
-                key={index}
-                front={card.front}
-                back={card.back}
+          <div className="mt-12 animate-fade-in-up">
+            <div className="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4 pb-4 border-b border-gray-200 dark:border-gray-800">
+              <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-linear-to-rfrom-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400">
+                Study Session
+              </h2>
+              <DisplayController
+                currentMode={mode}
+                onModeChange={handleModeChange}
               />
-            ))}
+            </div>
+
+            <div className="min-h-100">
+              {mode === "grid" && (
+                <GridMode
+                  flashcards={flashcards}
+                />
+              )}
+              {mode === "study" && (
+                <StudyMode
+                  flashcards={flashcards}
+                />
+              )}
+              {mode === "list" && (
+                <ListMode
+                  flashcards={flashcards}
+                />
+              )}
+            </div>
           </div>
         )}
 
