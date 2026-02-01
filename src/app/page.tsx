@@ -3,6 +3,7 @@
 import {
   useState,
   useEffect,
+  useCallback,
   KeyboardEvent,
 } from "react";
 import {
@@ -11,9 +12,8 @@ import {
   BrainCircuit,
   History,
   CheckCircle,
-  LogIn,
 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/utils/supabase/client";
 import {
   Flashcard,
   FlashcardSet,
@@ -49,6 +49,9 @@ const isRateLimitError = (
 };
 
 export default function Home() {
+  const [supabase] = useState(() =>
+    createClient(),
+  );
   const [topic, setTopic] = useState("");
   const [flashcards, setFlashcards] = useState<
     Flashcard[]
@@ -66,10 +69,24 @@ export default function Home() {
   const [savedSuccess, setSavedSuccess] =
     useState(false);
   const [quantity, setQuantity] = useState(5);
+  const [userId, setUserId] = useState<
+    string | null
+  >(null);
 
   // Display Mode State
   const [mode, setMode] =
     useState<DisplayMode>("grid");
+
+  // Check User
+  useEffect(() => {
+    const checkUser = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      setUserId(user?.id || null);
+    };
+    checkUser();
+  }, [supabase]);
 
   // Load saved mode preference
   useEffect(() => {
@@ -85,6 +102,36 @@ export default function Home() {
       setMode(savedMode);
     }
   }, []);
+
+  // Fetch recent sets on mount (depend on userId)
+  const fetchRecentSets =
+    useCallback(async () => {
+      let query = supabase
+        .from("flashcard_sets")
+        .select("*")
+        .order("created_at", {
+          ascending: false,
+        })
+        .limit(8);
+
+      if (userId) {
+        query = query.eq("user_id", userId);
+      } else {
+        // For guests, maybe show recent public ones? Or just local storage if we had it.
+        // For now, let's show public ones (user_id is null)
+        query = query.is("user_id", null);
+      }
+
+      const { data } = await query;
+
+      if (data) {
+        setRecentSets(data as FlashcardSet[]);
+      }
+    }, [supabase, userId]);
+
+  useEffect(() => {
+    fetchRecentSets();
+  }, [fetchRecentSets]);
 
   const handleModeChange = (
     newMode: DisplayMode,
@@ -119,23 +166,6 @@ export default function Home() {
 
   const handleShuffle = () => {
     setFlashcards((prev) => shuffleArray(prev));
-  };
-
-  // Fetch recent sets on mount
-  useEffect(() => {
-    fetchRecentSets();
-  }, []);
-
-  const fetchRecentSets = async () => {
-    const { data } = await supabase
-      .from("flashcard_sets")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(8);
-
-    if (data) {
-      setRecentSets(data as FlashcardSet[]);
-    }
   };
 
   // Countdown effect
@@ -174,15 +204,21 @@ export default function Home() {
 
     try {
       // Step A: Check DB First
+      let query = supabase
+        .from("flashcard_sets")
+        .select("*")
+        .ilike("topic", topic.trim());
+
+      if (userId) {
+        query = query.eq("user_id", userId);
+      } else {
+        query = query.is("user_id", null);
+      }
+
       const {
         data: existingData,
         error: dbError,
-      } = await supabase
-        .from("flashcard_sets")
-        .select("*")
-        .ilike("topic", topic.trim())
-        .limit(1)
-        .single();
+      } = await query.limit(1).single();
 
       if (existingData) {
         console.log(
@@ -308,6 +344,7 @@ export default function Home() {
           topic,
           count: quantity,
           skipDb: false,
+          userId,
         }),
       });
 
@@ -369,46 +406,47 @@ export default function Home() {
         );
         setError({
           message:
-            "Generated successfully, but failed to save to database.",
+            "Cards generated but failed to save to history.",
           details: data.dbError,
         });
       }
     } catch (err: unknown) {
-      let errorInfo: string | object =
-        "Something went wrong.";
-      if (err instanceof Error) {
-        try {
-          errorInfo = JSON.parse(err.message);
-        } catch {
-          errorInfo = err.message;
-        }
+      console.error("Error generating:", err);
+      if (isRateLimitError(err)) {
+        setCountdown(err.retryDelay || 30);
+        setError(err.message);
       } else if (
-        typeof err === "object" &&
-        err !== null
+        err instanceof Error &&
+        err.message.startsWith("{")
       ) {
-        errorInfo = err;
-      }
-
-      if (isRateLimitError(errorInfo)) {
-        setError(errorInfo);
-        if (
-          typeof errorInfo.retryDelay ===
-          "number"
-        ) {
-          setCountdown(errorInfo.retryDelay);
+        try {
+          const parsed = JSON.parse(
+            err.message,
+          );
+          if (parsed.code === 429) {
+            setCountdown(
+              parsed.retryDelay || 30,
+            );
+            setError(parsed.message);
+          } else {
+            setError(
+              parsed.message ||
+                "Something went wrong",
+            );
+          }
+        } catch {
+          setError(err.message);
         }
       } else {
-        setError(errorInfo);
-        setCountdown(null);
+        setError(
+          err instanceof Error
+            ? err.message
+            : "An unknown error occurred",
+        );
       }
-      console.error(err);
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Enter") generateFlashcards();
   };
 
   const loadFromHistory = (
@@ -416,276 +454,206 @@ export default function Home() {
   ) => {
     setTopic(set.topic);
     setFlashcards(set.cards);
+    setSavedSuccess(false); // Already saved
     setError(null);
-    setSavedSuccess(false);
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
   };
 
   return (
-    <main className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-300">
-      <div className="container mx-auto px-4 py-12 max-w-6xl">
-        {/* Header */}
-        <div className="relative text-center mb-12">
-          {/* Login Button (Mock UI) */}
-          <button className="absolute top-0 right-0 hidden md:flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors shadow-sm">
-            <LogIn className="w-4 h-4" />
-            Login with Google
-          </button>
+    <div className="max-w-4xl mx-auto space-y-8">
+      {/* Header Section */}
+      <div className="text-center space-y-4">
+        <h1 className="text-4xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400 sm:text-5xl">
+          AI Flashcards Generator
+        </h1>
+        <p className="text-lg text-slate-400 max-w-2xl mx-auto">
+          Create flashcards instantly from any
+          topic. Enter a subject, choose your
+          quantity, and start learning.
+        </p>
+      </div>
 
-          <div className="flex justify-center mb-4">
-            <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-full animate-bounce-slow">
-              <BrainCircuit className="w-10 h-10 text-blue-600 dark:text-blue-400" />
-            </div>
-          </div>
-          <h1 className="text-4xl md:text-5xl font-extrabold bg-clip-text text-transparent bg-linear-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 mb-4">
-            AI Flashcards Generator
-          </h1>
-          <p className="text-lg text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
-            Generate study flashcards instantly
-            with the power of Gemini AI. Enter a
-            topic below to get started.
-          </p>
-        </div>
-
-        {/* Input Section */}
-        <div className="max-w-xl mx-auto mb-16">
-          <div className="relative flex items-center">
+      {/* Input Section */}
+      <div className="bg-slate-800/50 rounded-2xl shadow-xl border border-slate-700/50 p-6 md:p-8 space-y-6 backdrop-blur-sm">
+        <div className="flex flex-col md:flex-row gap-4">
+          <div className="flex-1">
+            <label
+              htmlFor="topic"
+              className="block text-sm font-medium text-slate-300 mb-2"
+            >
+              What do you want to learn?
+            </label>
             <input
+              id="topic"
               type="text"
               value={topic}
               onChange={(e) =>
                 setTopic(e.target.value)
               }
-              onKeyDown={handleKeyDown}
-              placeholder="Enter a topic (e.g., React Hooks, Solar System)..."
-              className="w-full px-6 py-4 text-lg rounded-full border-2 border-gray-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none transition-all dark:bg-gray-800 dark:border-gray-700 dark:text-white shadow-lg"
-              disabled={loading}
-            />
-            <button
-              onClick={generateFlashcards}
-              disabled={
-                loading || !topic.trim()
+              placeholder="e.g., Quantum Physics, Spanish Verbs, React Hooks..."
+              className="w-full px-4 py-3 rounded-xl border border-slate-600 bg-slate-900/50 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all text-white placeholder:text-slate-500"
+              onKeyDown={(e: KeyboardEvent) =>
+                e.key === "Enter" &&
+                generateFlashcards()
               }
-              className="absolute right-2 p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
-            >
-              {loading ? (
-                <Loader2 className="w-6 h-6 animate-spin" />
-              ) : (
-                <Sparkles className="w-6 h-6" />
-              )}
-            </button>
+            />
           </div>
-
-          {/* Controls: Quantity & Shuffle */}
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-4 animate-fade-in-up">
-            <div className="flex items-center gap-2 bg-white dark:bg-gray-800 p-2 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
-              <span className="text-sm font-medium text-gray-600 dark:text-gray-300 ml-2">
-                Quantity:
-              </span>
-              <select
-                value={quantity}
-                onChange={(e) =>
-                  setQuantity(
-                    Number(e.target.value),
-                  )
-                }
-                disabled={loading}
-                className="bg-transparent border-none focus:ring-0 text-sm font-bold text-blue-600 dark:text-blue-400 cursor-pointer"
-              >
-                <option value={5}>
-                  5 cards
-                </option>
-                <option value={10}>
-                  10 cards
-                </option>
-                <option value={15}>
-                  15 cards
-                </option>
-                <option value={20}>
-                  20 cards
-                </option>
-                {![5, 10, 15, 20].includes(
-                  quantity,
-                ) && (
-                  <option value={quantity}>
-                    Custom
-                  </option>
-                )}
-              </select>
-
-              <div className="w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1"></div>
-
-              <input
-                type="number"
-                min="1"
-                max="100"
-                value={quantity || ""}
-                onChange={(e) => {
-                  const val = parseInt(
-                    e.target.value,
-                  );
-                  if (!isNaN(val) && val > 0)
-                    setQuantity(val);
-                  else if (
-                    e.target.value === ""
-                  )
-                    setQuantity(0);
-                }}
-                onBlur={() => {
-                  if (
-                    !quantity ||
-                    quantity === 0
-                  )
-                    setQuantity(5);
-                }}
-                className="w-16 bg-transparent text-center text-sm font-bold focus:outline-none focus:text-blue-600 dark:focus:text-blue-400"
-                placeholder="#"
-              />
-            </div>
-
-            {flashcards.length > 0 && (
-              <button
-                onClick={handleShuffle}
-                className="flex items-center gap-2 px-4 py-2 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 rounded-lg hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors text-sm font-medium"
-              >
-                <History className="w-4 h-4" />
-                Shuffle Cards
-              </button>
-            )}
-          </div>
-
-          {quantity > 100 ? (
-            <p className="mt-2 text-xs text-center text-red-600 dark:text-red-400 font-bold">
-              ⛔ Giới hạn tối đa là 100 thẻ để
-              tránh lỗi Timeout.
-            </p>
-          ) : (
-            quantity > 15 && (
-              <p className="mt-2 text-xs text-center text-amber-600 dark:text-amber-400">
-                ⚠️ Lưu ý: Số lượng thẻ lớn có
-                thể mất nhiều thời gian hơn để
-                AI xử lý.
-              </p>
-            )
-          )}
-
-          {/* Saved Success Message */}
-          {savedSuccess && (
-            <div className="mt-2 flex items-center justify-center text-green-600 dark:text-green-400 animate-fade-in">
-              <CheckCircle className="w-4 h-4 mr-2" />
-              <span className="text-sm font-medium">
-                Saved to Database
-              </span>
-            </div>
-          )}
-
-          {error && (
-            <div
-              className={`mt-4 text-center font-medium animate-pulse overflow-auto max-h-60 p-4 rounded-lg ${
-                isRateLimitError(error)
-                  ? "bg-yellow-50 text-yellow-700 border border-yellow-200 dark:bg-yellow-900/20 dark:text-yellow-400"
-                  : "text-red-500 bg-red-50 dark:bg-red-900/20"
-              }`}
+          <div className="w-full md:w-32">
+            <label
+              htmlFor="quantity"
+              className="block text-sm font-medium text-slate-300 mb-2"
             >
-              {isRateLimitError(error) ? (
-                <div>
-                  <p>{error.message}</p>
-                  {countdown !== null &&
-                    countdown > 0 && (
-                      <p className="text-sm mt-1 font-bold">
-                        Thử lại sau: {countdown}
-                        s
-                      </p>
-                    )}
-                </div>
-              ) : typeof error === "string" ? (
-                error
-              ) : (
-                <pre className="text-left text-xs whitespace-pre-wrap font-mono">
-                  {JSON.stringify(
-                    error,
-                    null,
-                    2,
-                  )}
-                </pre>
-              )}
-            </div>
-          )}
-
-          {/* Recent Topics */}
-          {recentSets.length > 0 && (
-            <div className="mt-8">
-              <div className="flex items-center gap-2 mb-3 text-gray-500 dark:text-gray-400">
-                <History className="w-4 h-4" />
-                <span className="text-sm font-medium uppercase tracking-wider">
-                  Recent Topics
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {recentSets.map((set) => (
-                  <button
-                    key={set.id}
-                    onClick={() =>
-                      loadFromHistory(set)
-                    }
-                    className="px-3 py-1.5 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full hover:border-blue-500 dark:hover:border-blue-500 transition-colors shadow-sm"
-                  >
-                    {set.topic}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+              Quantity
+            </label>
+            <input
+              id="quantity"
+              type="number"
+              min={1}
+              max={50}
+              value={quantity}
+              onChange={(e) =>
+                setQuantity(
+                  Number(e.target.value),
+                )
+              }
+              className="w-full px-4 py-3 rounded-xl border border-slate-600 bg-slate-900/50 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all text-white placeholder:text-slate-500"
+            />
+          </div>
         </div>
 
-        {/* Results Section with Display Modes */}
-        {flashcards.length > 0 && (
-          <div className="mt-12 animate-fade-in-up">
-            <div className="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4 pb-4 border-b border-gray-200 dark:border-gray-800">
-              <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-linear-to-rfrom-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400">
-                Study Session
-              </h2>
+        {error && (
+          <div className="p-4 bg-red-50 text-red-600 rounded-xl text-sm flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
+            <span className="font-bold">
+              Error:
+            </span>{" "}
+            {typeof error === "string"
+              ? error
+              : JSON.stringify(error)}
+          </div>
+        )}
+
+        {countdown !== null &&
+          countdown > 0 && (
+            <div className="p-4 bg-yellow-50 text-yellow-700 rounded-xl text-sm flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              System is busy. Retrying in{" "}
+              {countdown}s...
+            </div>
+          )}
+
+        <button
+          onClick={generateFlashcards}
+          disabled={loading || !topic.trim()}
+          className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 shadow-lg hover:shadow-indigo-500/25 active:scale-[0.99]"
+        >
+          {loading ? (
+            <>
+              <Loader2 className="w-5 h-5 animate-spin" />
+              Generating...
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-5 h-5" />
+              Generate Flashcards
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Main Content Area */}
+      {flashcards.length > 0 && (
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+            <div className="flex items-center gap-2">
+              <div className="bg-green-100 text-green-700 p-2 rounded-full">
+                <BrainCircuit className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="font-bold text-gray-900">
+                  {topic}
+                </h2>
+                <p className="text-xs text-gray-500">
+                  {flashcards.length} cards
+                  generated
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {savedSuccess && (
+                <span className="text-green-600 text-sm font-medium flex items-center gap-1 bg-green-50 px-3 py-1 rounded-full">
+                  <CheckCircle className="w-4 h-4" />
+                  Saved to History
+                </span>
+              )}
+              <button
+                onClick={handleShuffle}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
+                title="Shuffle Cards"
+              >
+                <History className="w-5 h-5" />
+              </button>
               <DisplayController
                 currentMode={mode}
                 onModeChange={handleModeChange}
               />
             </div>
-
-            <div className="min-h-100">
-              {mode === "grid" && (
-                <GridMode
-                  flashcards={flashcards}
-                />
-              )}
-              {mode === "study" && (
-                <StudyMode
-                  flashcards={flashcards}
-                />
-              )}
-              {mode === "list" && (
-                <ListMode
-                  flashcards={flashcards}
-                />
-              )}
-            </div>
           </div>
-        )}
 
-        {/* Empty State / Placeholder */}
-        {!loading &&
-          flashcards.length === 0 &&
-          !error && (
-            <div className="text-center text-gray-400 dark:text-gray-600 mt-12">
-              <p>
-                Ready to learn? Type a topic
-                above!
-              </p>
-            </div>
-          )}
-      </div>
-    </main>
+          <div className="min-h-100">
+            {mode === "grid" && (
+              <GridMode
+                flashcards={flashcards}
+              />
+            )}
+            {mode === "study" && (
+              <StudyMode
+                flashcards={flashcards}
+              />
+            )}
+            {mode === "list" && (
+              <ListMode
+                flashcards={flashcards}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Recent History */}
+      {recentSets.length > 0 && (
+        <div className="pt-8 border-t border-gray-200">
+          <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+            <History className="w-5 h-5" />
+            Recent Sets
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {recentSets.map((set) => (
+              <button
+                key={set.id}
+                onClick={() =>
+                  loadFromHistory(set)
+                }
+                className="group text-left bg-white p-4 rounded-xl border border-gray-200 hover:border-black transition-all hover:shadow-md"
+              >
+                <div className="font-semibold text-gray-900 truncate mb-1 group-hover:text-indigo-600 transition-colors">
+                  {set.topic}
+                </div>
+                <div className="flex justify-between items-center text-xs text-gray-500">
+                  <span>
+                    {set.cards?.length || 0}{" "}
+                    cards
+                  </span>
+                  <span>
+                    {new Date(
+                      set.created_at,
+                    ).toLocaleDateString()}
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

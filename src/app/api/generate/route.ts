@@ -1,8 +1,12 @@
 import { GoogleGenAI } from "@google/genai";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/utils/supabase/server";
 
 export async function POST(req: Request) {
     try {
+        const supabase = await createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        const userId = user?.id || null;
+
         const apiKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY;
 
         if (!apiKey) {
@@ -77,11 +81,11 @@ export async function POST(req: Request) {
 
         if (!skipDb) {
             try {
-                console.log("Attempting to insert into Supabase:", { topic, cardsCount: data.length });
+                console.log("Attempting to insert into Supabase:", { topic, cardsCount: data.length, userId });
                 const { data: insertedData, error: insertError } = await supabase
                     .from('flashcard_sets')
                     .insert([
-                        { topic: topic, cards: data }
+                        { topic: topic, cards: data, user_id: userId }
                     ])
                     .select('id')
                     .single();

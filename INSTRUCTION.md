@@ -111,3 +111,22 @@ We deliberately avoided the SDK's built-in `responseMimeType: 'application/json'
 1.  **Supabase Integration**: Persist flashcards to a database so users can save/review later.
 2.  **Export PDF**: Use `jspdf` to generate printable flashcards.
 3.  **User Auth**: Add `Clerk` or `NextAuth` for personalized user sessions.
+
+---
+
+## 6. Code Quality & Best Practices (Warnings & Pitfalls)
+
+### **Tailwind CSS v4 Preferences**
+- **Linear Gradients**: Use `bg-linear-to-*` instead of the legacy `bg-gradient-to-*` syntax.
+- **Flexbox**: Use `shrink-0` instead of `flex-shrink-0`.
+- **Custom Spacing**: Use `min-h-100` (or similar custom values) instead of arbitrary values like `min-h-[400px]` where possible for consistency.
+
+### **Next.js & React Best Practices**
+- **Images**: Always use the `<Image />` component from `next/image` instead of the standard `<img>` tag to optimize performance and prevent LCP warnings.
+  - *Note*: For local blob URLs or dynamic external images, add `unoptimized` or configure `next.config.ts` accordingly.
+- **JSX Special Characters**: Always escape apostrophes and special characters (e.g., use `&apos;` instead of `'`) to avoid JSX parsing errors.
+- **React Hooks**: Always include all dependencies in `useEffect` and `useCallback` dependency arrays. Use `useCallback` to memoize functions passed as dependencies.
+
+### **TypeScript & Linting**
+- **Type Safety**: Avoid `any` at all costs. Use explicit interfaces (e.g., `FlashcardSet`) or `unknown` with type narrowing.
+- **Unused Variables**: Remove all unused variables. If a variable is required by a function signature but unused, prefix it with `_` (e.g., `_event`).
