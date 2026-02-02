@@ -13,6 +13,10 @@ import {
   History,
   CheckCircle,
 } from "lucide-react";
+import {
+  motion,
+  AnimatePresence,
+} from "framer-motion";
 import { createClient } from "@/utils/supabase/client";
 import {
   Flashcard,
@@ -104,8 +108,19 @@ export default function Home() {
   }, []);
 
   // Fetch recent sets on mount (depend on userId)
+  const [toastMessage, setToastMessage] =
+    useState<string | null>(null);
+
   const fetchRecentSets =
     useCallback(async () => {
+      // Standardized to fetch recent sets globally
+      // We could filter by contributor_ids.cs.{userId} if we only want "My" sets,
+      // but the prompt implies a more community-driven approach.
+      // However, usually users want to see what they worked on.
+      // Let's modify to show sets where user is a contributor OR just recent global sets.
+      // Given "Unified Topic = One Record", showing global recent sets seems appropriate for discovery.
+      // But let's prioritize sets the user has interacted with if userId exists.
+
       let query = supabase
         .from("flashcard_sets")
         .select("*")
@@ -114,13 +129,18 @@ export default function Home() {
         })
         .limit(8);
 
+      // If we want to show ONLY sets the user contributed to:
       if (userId) {
-        query = query.eq("user_id", userId);
-      } else {
-        // For guests, maybe show recent public ones? Or just local storage if we had it.
-        // For now, let's show public ones (user_id is null)
-        query = query.is("user_id", null);
+        // Using 'cs' (contains) operator for array column
+        query = query.contains(
+          "contributor_ids",
+          [userId],
+        );
       }
+      // If no userId (Guest), we just show the most recent global sets (since we can't track them)
+      // or we could keep the previous logic of showing nothing?
+      // The previous logic showed `is("user_id", null)` for guests.
+      // Now user_id is ignored. So guests should probably see recent community sets.
 
       const { data } = await query;
 
@@ -144,29 +164,32 @@ export default function Home() {
   };
 
   // Fisher-Yates Shuffle
-  const shuffleArray = <T,>(
-    array: T[],
-  ): T[] => {
-    const newArray = [...array];
-    for (
-      let i = newArray.length - 1;
-      i > 0;
-      i--
-    ) {
-      const j = Math.floor(
-        Math.random() * (i + 1),
-      );
-      [newArray[i], newArray[j]] = [
-        newArray[j],
-        newArray[i],
-      ];
-    }
-    return newArray;
-  };
+  const shuffleArray = useCallback(
+    <T,>(array: T[]): T[] => {
+      const newArray = [...array];
+      for (
+        let i = newArray.length - 1;
+        i > 0;
+        i--
+      ) {
+        const j = Math.floor(
+          Math.random() * (i + 1),
+        );
+        [newArray[i], newArray[j]] = [
+          newArray[j],
+          newArray[i],
+        ];
+      }
+      return newArray;
+    },
+    [],
+  );
 
-  const handleShuffle = () => {
+  const handleShuffle = useCallback(() => {
     setFlashcards((prev) => shuffleArray(prev));
-  };
+  }, [shuffleArray]);
+
+  // Keyboard shortcuts moved to after handleGenerateNew definition
 
   // Countdown effect
   useEffect(() => {
@@ -193,261 +216,333 @@ export default function Home() {
     }
   }, [savedSuccess]);
 
-  const generateFlashcards = async () => {
-    if (!topic.trim()) return;
+  const coreGenerate = useCallback(
+    async (skipDbCheck: boolean = false) => {
+      if (!topic.trim()) return;
 
-    setLoading(true);
-    setError(null);
-    setCountdown(null);
-    setFlashcards([]);
-    setSavedSuccess(false);
+      setLoading(true);
+      setError(null);
+      setCountdown(null);
+      setSavedSuccess(false);
 
-    try {
-      // Step A: Check DB First
-      let query = supabase
-        .from("flashcard_sets")
-        .select("*")
-        .ilike("topic", topic.trim());
+      try {
+        // Step A: Unified Topic Search (Global Search)
+        // Find ANY existing set with this topic, regardless of owner
+        let existingData = null;
 
-      if (userId) {
-        query = query.eq("user_id", userId);
-      } else {
-        query = query.is("user_id", null);
-      }
+        const query = supabase
+          .from("flashcard_sets")
+          .select("*")
+          .ilike("topic", topic.trim());
 
-      const {
-        data: existingData,
-        error: dbError,
-      } = await query.limit(1).single();
+        // Removed user_id filter to allow global topic search
 
-      if (existingData) {
-        console.log(
-          "Found in DB:",
-          existingData,
-        );
-        const existingCards =
-          existingData.cards as Flashcard[];
+        const {
+          data: existingSet,
+          error: dbError,
+        } = await query.limit(1).maybeSingle();
 
-        if (existingCards.length >= quantity) {
-          // Case 1: DB has enough cards. Shuffle and display.
+        if (!dbError && existingSet) {
+          existingData = existingSet;
+        }
+
+        if (existingData && !skipDbCheck) {
           console.log(
-            `Found ${existingCards.length} cards in DB, requested ${quantity}. No API call needed.`,
+            "Found in DB (Unified):",
+            existingData,
           );
-          const subset = shuffleArray(
-            existingCards,
-          ).slice(0, quantity);
-          setFlashcards(subset);
-          setSavedSuccess(true);
-          setLoading(false);
-          return;
-        } else {
-          // Case 2: DB has fewer cards. Append new ones.
-          const needed =
-            quantity - existingCards.length;
-          console.log(
-            `Found ${existingCards.length} cards in DB, need to create ${needed} more.`,
-          );
+          const existingCards =
+            existingData.cards as Flashcard[];
 
-          // Call API for missing cards (skipDb = true)
-          const res = await fetch(
-            "/api/generate",
-            {
-              method: "POST",
-              headers: {
-                "Content-Type":
-                  "application/json",
-              },
-              body: JSON.stringify({
-                topic,
-                count: needed,
-                skipDb: true,
-              }),
-            },
-          );
-
-          if (!res.ok)
-            throw new Error(
-              "Failed to fetch additional cards",
+          if (
+            existingCards.length >= quantity
+          ) {
+            console.log(
+              `Found ${existingCards.length} cards in DB. No API call needed.`,
             );
+            const subset = shuffleArray(
+              existingCards,
+            ).slice(0, quantity);
+            setFlashcards(subset);
+            setSavedSuccess(true);
+            setLoading(false);
+            return;
+          }
+        }
 
-          const data = await res.json();
-          let newCards: Flashcard[] = [];
+        // Calculate how many to fetch
+        let countToFetch = quantity;
+        let existingCards: Flashcard[] = [];
+        let setIdToUpdate: string | null = null;
+        let currentContributors: string[] = [];
 
-          if (Array.isArray(data))
-            newCards = data;
-          else if (
-            data.flashcards &&
-            Array.isArray(data.flashcards)
-          )
-            newCards = data.flashcards;
-          else newCards = [];
+        if (existingData) {
+          console.log("Aggregating: true");
+          existingCards =
+            existingData.cards as Flashcard[];
+          setIdToUpdate = existingData.id;
+          currentContributors =
+            existingData.contributor_ids || [];
 
-          if (newCards.length > 0) {
-            const mergedCards = [
-              ...existingCards,
-              ...newCards,
-            ];
+          if (!skipDbCheck) {
+            countToFetch =
+              quantity - existingCards.length;
+          }
+        }
 
-            // Update Supabase
+        if (countToFetch <= 0) countToFetch = 5;
+
+        console.log(
+          `Fetching ${countToFetch} new cards... (Aggregating: ${!!existingData})`,
+        );
+
+        // Call API
+        const res = await fetch(
+          "/api/generate",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              topic,
+              count: countToFetch,
+              skipDb: true,
+              userId,
+            }),
+          },
+        );
+
+        if (!res.ok) {
+          const errorData = await res
+            .json()
+            .catch(() => ({}));
+          if (
+            res.status === 429 ||
+            errorData.error === "rate_limit"
+          ) {
+            const retryDelay =
+              errorData.retryAfter || 30;
+            throw new Error(
+              JSON.stringify({
+                code: 429,
+                message:
+                  errorData.message ||
+                  `Hệ thống đang bận. Vui lòng đợi ${retryDelay} giây.`,
+                retryDelay,
+              }),
+            );
+          }
+          const fullError =
+            errorData.error || errorData;
+          throw new Error(
+            JSON.stringify(fullError),
+          );
+        }
+
+        const apiData = await res.json();
+        let newCards: Flashcard[] = [];
+
+        if (Array.isArray(apiData))
+          newCards = apiData;
+        else if (
+          apiData.flashcards &&
+          Array.isArray(apiData.flashcards)
+        )
+          newCards = apiData.flashcards;
+        else newCards = [];
+
+        if (newCards.length > 0) {
+          // Aggregation Logic
+          const mergedCards = [
+            ...existingCards,
+            ...newCards,
+          ];
+          setFlashcards(mergedCards);
+
+          // Contributor Logic
+          const updatedContributors = [
+            ...currentContributors,
+          ];
+          if (
+            userId &&
+            !updatedContributors.includes(
+              userId,
+            )
+          ) {
+            updatedContributors.push(userId);
+          }
+
+          if (setIdToUpdate) {
+            // Update Existing Set (Unified)
+            // Removed user_id from update payload (except implicitly via contributor_ids logic)
+            const updatePayload: {
+              cards: Flashcard[];
+              contributor_ids?: string[];
+            } = {
+              cards: mergedCards,
+            };
+
+            if (userId) {
+              updatePayload.contributor_ids =
+                updatedContributors;
+            }
+
             const { error: updateError } =
               await supabase
                 .from("flashcard_sets")
-                .update({ cards: mergedCards })
-                .eq("id", existingData.id);
+                .update(updatePayload)
+                .eq("id", setIdToUpdate);
 
             if (updateError) {
-              console.error(
+              console.warn(
                 "Update Error:",
                 updateError,
               );
-              setError({
-                message:
-                  "Updated cards locally, but failed to save to DB.",
-                details: updateError,
-              });
-            } else {
-              console.log(
-                "Supabase Updated with merged cards",
-              );
-              setSavedSuccess(true);
+              // Retry without contributors if it fails (fallback)
+              const { error: retryError } =
+                await supabase
+                  .from("flashcard_sets")
+                  .update({
+                    cards: mergedCards,
+                  })
+                  .eq("id", setIdToUpdate);
+              if (retryError) throw retryError;
             }
 
-            setFlashcards(mergedCards);
-          } else {
-            console.warn(
-              "AI returned no cards to append.",
+            setToastMessage(
+              `You've contributed ${newCards.length} new cards to this global collection!`,
             );
-            setFlashcards(existingCards);
+            setTimeout(
+              () => setToastMessage(null),
+              5000,
+            );
+          } else {
+            // Insert New Set
+            // Removed user_id from insert payload
+            const { error: insertError } =
+              await supabase
+                .from("flashcard_sets")
+                .insert([
+                  {
+                    topic,
+                    cards: mergedCards,
+                    contributor_ids: userId
+                      ? [userId]
+                      : [],
+                  },
+                ]);
+            if (insertError) throw insertError;
           }
-          setLoading(false);
+          setSavedSuccess(true);
+          fetchRecentSets();
+        } else {
+          setFlashcards(existingCards);
+        }
+      } catch (err: unknown) {
+        console.error("Error generating:", err);
+        if (isRateLimitError(err)) {
+          setCountdown(err.retryDelay || 30);
+          setError(err.message);
+        } else if (
+          err instanceof Error &&
+          err.message.startsWith("{")
+        ) {
+          try {
+            const parsed = JSON.parse(
+              err.message,
+            );
+            if (parsed.code === 429) {
+              setCountdown(
+                parsed.retryDelay || 30,
+              );
+              setError(parsed.message);
+            } else {
+              setError(
+                parsed.message ||
+                  "Something went wrong",
+              );
+            }
+          } catch {
+            setError(err.message);
+          }
+        } else {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "An unknown error occurred",
+          );
+        }
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      topic,
+      quantity,
+      userId,
+      supabase,
+      shuffleArray,
+      fetchRecentSets,
+    ],
+  );
+
+  const handleGenerateNew =
+    useCallback(async () => {
+      if (loading) return;
+      if (mode === "study") {
+        if (
+          !window.confirm(
+            "Generating new cards will interrupt your study session. Continue?",
+          )
+        ) {
           return;
         }
       }
+      await coreGenerate(true);
+    }, [loading, mode, coreGenerate]);
 
+  // Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (
+      e: globalThis.KeyboardEvent,
+    ) => {
+      // Ignore if typing in an input
       if (
-        dbError &&
-        dbError.code !== "PGRST116"
+        document.activeElement?.tagName ===
+          "INPUT" ||
+        document.activeElement?.tagName ===
+          "TEXTAREA"
       ) {
-        console.warn(
-          "DB Check Error:",
-          dbError,
-        );
+        return;
       }
 
-      // Step B: Call AI & Save (New Topic)
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          topic,
-          count: quantity,
-          skipDb: false,
-          userId,
-        }),
-      });
-
-      if (!res.ok) {
-        const errorData = await res
-          .json()
-          .catch(() => ({}));
-        if (
-          res.status === 429 ||
-          errorData.error === "rate_limit"
-        ) {
-          const retryDelay =
-            errorData.retryAfter || 30;
-          throw new Error(
-            JSON.stringify({
-              code: 429,
-              message:
-                errorData.message ||
-                `Hệ thống đang bận. Vui lòng đợi ${retryDelay} giây.`,
-              retryDelay,
-            }),
-          );
-        }
-        const fullError =
-          errorData.error || errorData;
-        throw new Error(
-          JSON.stringify(fullError),
-        );
+      if (e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        handleShuffle();
       }
-
-      const data = await res.json();
-      let cards: Flashcard[] = [];
-
-      if (Array.isArray(data)) {
-        cards = data;
-      } else if (
-        data.flashcards &&
-        Array.isArray(data.flashcards)
-      ) {
-        cards = data.flashcards;
-      } else {
-        console.warn(
-          "Unexpected API response format:",
-          data,
-        );
-        cards = [];
+      if (e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        handleGenerateNew();
       }
+    };
 
-      setFlashcards(cards);
+    window.addEventListener(
+      "keydown",
+      handleKeyDown,
+    );
+    return () =>
+      window.removeEventListener(
+        "keydown",
+        handleKeyDown,
+      );
+  }, [handleShuffle, handleGenerateNew]); // Re-binds when handlers change
 
-      // Handle Saved State & Errors
-      if (data.id) {
-        setSavedSuccess(true);
-        fetchRecentSets(); // Refresh history
-      } else if (data.dbError) {
-        console.error(
-          "Supabase Insert Error from API:",
-          data.dbError,
-        );
-        setError({
-          message:
-            "Cards generated but failed to save to history.",
-          details: data.dbError,
-        });
-      }
-    } catch (err: unknown) {
-      console.error("Error generating:", err);
-      if (isRateLimitError(err)) {
-        setCountdown(err.retryDelay || 30);
-        setError(err.message);
-      } else if (
-        err instanceof Error &&
-        err.message.startsWith("{")
-      ) {
-        try {
-          const parsed = JSON.parse(
-            err.message,
-          );
-          if (parsed.code === 429) {
-            setCountdown(
-              parsed.retryDelay || 30,
-            );
-            setError(parsed.message);
-          } else {
-            setError(
-              parsed.message ||
-                "Something went wrong",
-            );
-          }
-        } catch {
-          setError(err.message);
-        }
-      } else {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "An unknown error occurred",
-        );
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+  const generateFlashcards = useCallback(
+    () => coreGenerate(false),
+    [coreGenerate],
+  );
 
   const loadFromHistory = (
     set: FlashcardSet,
@@ -548,7 +643,9 @@ export default function Home() {
           {loading ? (
             <>
               <Loader2 className="w-5 h-5 animate-spin" />
-              Generating...
+              {flashcards.length > 0
+                ? "Adding Cards..."
+                : "Generating..."}
             </>
           ) : (
             <>
@@ -585,16 +682,14 @@ export default function Home() {
                   Saved to History
                 </span>
               )}
-              <button
-                onClick={handleShuffle}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
-                title="Shuffle Cards"
-              >
-                <History className="w-5 h-5" />
-              </button>
               <DisplayController
                 currentMode={mode}
                 onModeChange={handleModeChange}
+                onShuffle={handleShuffle}
+                onGenerateNew={
+                  handleGenerateNew
+                }
+                loadingNew={loading}
               />
             </div>
           </div>
@@ -649,11 +744,52 @@ export default function Home() {
                     ).toLocaleDateString()}
                   </span>
                 </div>
+                <div className="mt-2 text-xs text-indigo-500 font-medium">
+                  Contributors:{" "}
+                  {set.contributor_ids
+                    ?.length || 0}{" "}
+                  people
+                </div>
               </button>
             ))}
           </div>
         </div>
       )}
+      {/* Toast Notification */}
+      <AnimatePresence>
+        {toastMessage && (
+          <motion.div
+            initial={{
+              opacity: 0,
+              y: 50,
+              scale: 0.9,
+            }}
+            animate={{
+              opacity: 1,
+              y: 0,
+              scale: 1,
+            }}
+            exit={{
+              opacity: 0,
+              y: 20,
+              scale: 0.95,
+            }}
+            className="fixed bottom-6 right-6 bg-emerald-600 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 z-50 border border-emerald-500/50 backdrop-blur-md"
+          >
+            <div className="bg-white/20 p-2 rounded-full shadow-inner">
+              <CheckCircle className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <p className="font-bold text-sm text-emerald-100 uppercase tracking-wider mb-0.5">
+                Success
+              </p>
+              <p className="font-medium text-white">
+                {toastMessage}
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

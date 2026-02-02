@@ -9,6 +9,7 @@ export interface FlashcardSet {
   cards: Flashcard[];
   created_at: string;
   user_id?: string | null;
+  contributor_ids?: string[] | null;
 }
 
 export interface Profile {

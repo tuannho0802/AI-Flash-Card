@@ -120,3 +120,14 @@ This project is a modern, AI-powered Flashcard Generator that helps users create
 
 - **No Any**: Use `unknown` with narrowing or defined Interfaces (`Flashcard`, `FlashcardSet`).
 - **Cleanliness**: Remove unused variables (e.g., `router` if not navigating).
+- **Variable Declarations**:
+  - Always use `const` for variables that are not reassigned.
+  - Remember: Arrays and Objects mutated via methods (push, pop) are NOT reassigned, so they should be `const`.
+  - **Query Builders**: Supabase query chains that are not conditionally reassigned (e.g., `let query = ...; if(x) query = query.eq(...)`) must be declared as `const`. If you remove the conditional logic, remember to change `let` back to `const`.
+
+### **React Hooks**
+
+- **Effect Dependencies**: When using a function in a `useEffect` dependency array, ALWAYS wrap that function definition in `useCallback` to prevent infinite loops or unnecessary re-renders.
+  - *Example*: `useEffect(..., [handleGenerateNew])` requires `const handleGenerateNew = useCallback(...)`.
+- **Callback Dependencies**: Ensure all functions used inside `useCallback` are included in the dependency array. If the used function is defined within the component, it must also be wrapped in `useCallback` to maintain referential equality.
+  - *Example*: `useCallback(() => shuffleArray(prev), [shuffleArray])`.
