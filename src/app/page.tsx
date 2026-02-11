@@ -239,14 +239,27 @@ export default function Home() {
       setSavedSuccess(false);
 
       try {
+        // Step 0: Topic Normalization
+        const normRes = await fetch("/api/normalize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ topic: topic.trim() }),
+        });
+        
+        let normalizedTopic = topic.trim();
+        if (normRes.ok) {
+          const normData = await normRes.json();
+          normalizedTopic = normData.normalizedTopic;
+        }
+
         // Step A: Unified Topic Search (Global Search)
-        // Find ANY existing set with this topic, regardless of owner
+        // Find ANY existing set with this normalized topic, regardless of owner
         let existingData = null;
 
         const query = supabase
           .from("flashcard_sets")
           .select("*")
-          .ilike("topic", topic.trim());
+          .eq("normalized_topic", normalizedTopic);
 
         // Removed user_id filter to allow global topic search
 
@@ -261,7 +274,7 @@ export default function Home() {
 
         if (existingData && !skipDbCheck) {
           console.log(
-            "Found in DB (Unified):",
+            "Found in DB (Unified - Normalized):",
             existingData,
           );
           const existingCards =
@@ -425,7 +438,7 @@ export default function Home() {
             }
 
             setToastMessage(
-              `You've contributed ${newCards.length} new cards to this global collection!`,
+              `Successfully synchronized with the global '${normalizedTopic}' collection!`,
             );
             setTimeout(
               () => setToastMessage(null),
@@ -440,6 +453,7 @@ export default function Home() {
                 .insert([
                   {
                     topic,
+                    normalized_topic: normalizedTopic,
                     cards: mergedCards,
                     contributor_ids: userId
                       ? [userId]
