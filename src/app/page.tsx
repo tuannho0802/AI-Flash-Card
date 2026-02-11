@@ -7,6 +7,7 @@ import {
   KeyboardEvent,
   useMemo,
   Suspense,
+  useRef,
 } from "react";
 import { useSearchParams } from "next/navigation";
 import {
@@ -39,290 +40,94 @@ import DisplayController, {
   DisplayMode,
 } from "@/components/DisplayController";
 
-interface RateLimitError {
-  code: number;
-  message: string;
-  retryDelay?: number;
-}
-
-const isRateLimitError = (
-  err: unknown,
-): err is RateLimitError => {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    (err as Record<string, unknown>).code ===
-      429 &&
-    "message" in err &&
-    typeof (err as Record<string, unknown>)
-      .message === "string"
-  );
-};
-
 export default function Home() {
-  const [supabase] = useState(() =>
-    createClient(),
-  );
+  const [supabase] = useState(() => createClient());
   const [topic, setTopic] = useState("");
-  const [flashcards, setFlashcards] = useState<
-    Flashcard[]
-  >([]);
+  const [flashcards, setFlashcards] = useState<Flashcard[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<
-    string | object | null
-  >(null);
-  const [countdown, setCountdown] = useState<
-    number | null
-  >(null);
-  const [recentSets, setRecentSets] = useState<
-    FlashcardSet[]
-  >([]);
-  const [savedSuccess, setSavedSuccess] =
-    useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [recentSets, setRecentSets] = useState<FlashcardSet[]>([]);
+  const [savedSuccess, setSavedSuccess] = useState(false);
   const [quantity, setQuantity] = useState(5);
-  const [userId, setUserId] = useState<
-    string | null
-  >(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [retryMessage, setRetryMessage] = useState<string | null>(null);
   const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
   const [retryAttempt, setRetryAttempt] = useState<number>(0);
 
   // Focus Mode & Search State
-  const [isFocusMode, setIsFocusMode] =
-    useState(false);
-  const [searchTerm, setSearchTerm] =
-    useState("");
-  const [showHardOnly, setShowHardOnly] =
-    useState(false);
+  const [isFocusMode, setIsFocusMode] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [showHardOnly, setShowHardOnly] = useState(false);
   const { progress } = useLearningProgress();
+  const sessionCache = useRef<Map<string, any>>(new Map());
+
+  // Unified toast for successes
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Display Mode State
-  const [mode, setMode] =
-    useState<DisplayMode>("grid");
-
+  const [mode, setMode] = useState<DisplayMode>("grid");
   const [isAdmin, setIsAdmin] = useState(false);
   const [showAdminSidebar, setShowAdminSidebar] = useState(false);
   const searchParams = useSearchParams();
 
-  // Check User & Role
+  // Initial Data & Auth
   useEffect(() => {
-    const checkUser = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+    const init = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
       setUserId(user?.id || null);
-
       if (user) {
-        // Fetch Profile Role
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", user.id)
-          .single();
-        
-        if (profile?.role === 'admin') {
-          setIsAdmin(true);
-        }
+        const { data: pf } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+        setIsAdmin(pf?.role === "admin");
       }
     };
+    init();
 
-    checkUser();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setUserId(session?.user?.id || null);
-        if (session?.user) {
-          supabase
-            .from("profiles")
-            .select("role")
-            .eq("id", session.user.id)
-            .single()
-            .then(({ data }) => {
-              setIsAdmin(data?.role === 'admin');
-            });
-        } else {
-          setIsAdmin(false);
-          setShowAdminSidebar(false);
-        }
-      },
-    );
-
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUserId(session?.user?.id || null);
+      if (session?.user) {
+        supabase.from("profiles").select("role").eq("id", session.user.id).single()
+          .then(({ data }) => setIsAdmin(data?.role === "admin"));
+      } else {
+        setIsAdmin(false);
+        setShowAdminSidebar(false);
+      }
+    });
     return () => subscription.unsubscribe();
   }, [supabase]);
 
-
-  const handleAdminMerge = async () => {
-    if (!confirm("Are you sure you want to merge duplicate topics? This will combine cards and contributor lists.")) return;
-    
-    setLoading(true);
-    try {
-      const res = await fetch("/api/admin/merge", { method: "POST" });
-      const data = await res.json();
-      if (res.ok) {
-        setToastMessage(data.message);
-        setTimeout(() => setToastMessage(null), 5000);
-        // Refresh local sets
-        const { data: updatedSets } = await supabase
-          .from("flashcard_sets")
-          .select("*")
-          .order("created_at", { ascending: false });
-        if (updatedSets) setRecentSets(updatedSets);
-      } else {
-        setError(data.error || "Failed to merge topics");
-      }
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Check User
+  // Load mode preference
   useEffect(() => {
-    const checkUser = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      setUserId(user?.id || null);
-    };
-    checkUser();
-  }, [supabase]);
-
-  // Load saved mode preference
-  useEffect(() => {
-    const savedMode = localStorage.getItem(
-      "displayMode",
-    ) as DisplayMode;
-    if (
-      savedMode &&
-      ["grid", "study", "list"].includes(
-        savedMode,
-      )
-    ) {
-      setMode(savedMode);
-    }
+    const saved = localStorage.getItem("displayMode") as DisplayMode;
+    if (["grid", "study", "list"].includes(saved)) setMode(saved);
   }, []);
 
-  // Fetch recent sets on mount (depend on userId)
-  const [toastMessage, setToastMessage] =
-    useState<string | null>(null);
+  const fetchRecentSets = useCallback(async () => {
+    let query = supabase.from("flashcard_sets").select("*").order("created_at", { ascending: false }).limit(8);
+    if (userId) query = query.contains("contributor_ids", [userId]);
+    const { data } = await query;
+    if (data) setRecentSets(data as FlashcardSet[]);
+  }, [supabase, userId]);
 
-  const fetchRecentSets =
-    useCallback(async () => {
-      // Standardized to fetch recent sets globally
-      // We could filter by contributor_ids.cs.{userId} if we only want "My" sets,
-      // but the prompt implies a more community-driven approach.
-      // However, usually users want to see what they worked on.
-      // Let's modify to show sets where user is a contributor OR just recent global sets.
-      // Given "Unified Topic = One Record", showing global recent sets seems appropriate for discovery.
-      // But let's prioritize sets the user has interacted with if userId exists.
+  useEffect(() => { fetchRecentSets(); }, [fetchRecentSets]);
 
-      let query = supabase
-        .from("flashcard_sets")
-        .select("*")
-        .order("created_at", {
-          ascending: false,
-        })
-        .limit(8);
-
-      // If we want to show ONLY sets the user contributed to:
-      if (userId) {
-        // Using 'cs' (contains) operator for array column
-        query = query.contains(
-          "contributor_ids",
-          [userId],
-        );
-      }
-      // If no userId (Guest), we just show the most recent global sets (since we can't track them)
-      // or we could keep the previous logic of showing nothing?
-      // The previous logic showed `is("user_id", null)` for guests.
-      // Now user_id is ignored. So guests should probably see recent community sets.
-
-      const { data } = await query;
-
-      if (data) {
-        setRecentSets(data as FlashcardSet[]);
-      }
-    }, [supabase, userId]);
-
-  useEffect(() => {
-    fetchRecentSets();
-  }, [fetchRecentSets]);
-
-  const handleModeChange = (
-    newMode: DisplayMode,
-  ) => {
-    setMode(newMode);
-    localStorage.setItem(
-      "displayMode",
-      newMode,
-    );
+  const handleModeChange = (m: DisplayMode) => {
+    setMode(m);
+    localStorage.setItem("displayMode", m);
   };
 
-  // Fisher-Yates Shuffle
-  const shuffleArray = useCallback(
-    <T,>(array: T[]): T[] => {
-      const newArray = [...array];
-      for (
-        let i = newArray.length - 1;
-        i > 0;
-        i--
-      ) {
-        const j = Math.floor(
-          Math.random() * (i + 1),
-        );
-        [newArray[i], newArray[j]] = [
-          newArray[j],
-          newArray[i],
-        ];
-      }
-      return newArray;
-    },
-    [],
-  );
+  const shuffleArray = useCallback(<T,>(array: T[]): T[] => {
+    const newArray = [...array];
+    for (let i = newArray.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+    }
+    return newArray;
+  }, []);
 
   const handleShuffle = useCallback(() => {
     setFlashcards((prev) => shuffleArray(prev));
   }, [shuffleArray]);
-
-  // Keyboard shortcuts moved to after handleGenerateNew definition
-
-  // Countdown effect
-  useEffect(() => {
-    if (countdown === null || countdown <= 0)
-      return;
-    const timer = setInterval(() => {
-      setCountdown((prev) =>
-        prev !== null && prev > 0
-          ? prev - 1
-          : 0,
-      );
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [countdown]);
-
-  // Clear saved success message after 3 seconds
-  useEffect(() => {
-    if (savedSuccess) {
-      const timer = setTimeout(
-        () => setSavedSuccess(false),
-        3000,
-      );
-      return () => clearTimeout(timer);
-    }
-  }, [savedSuccess]);
-
-  // Retry Countdown Effect
-  useEffect(() => {
-    if (retryCountdown === null || retryCountdown <= 0) return;
-    const timer = setInterval(() => {
-      setRetryCountdown(prev => (prev !== null && prev > 1 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [retryCountdown]);
 
   const coreGenerate = useCallback(
     async (skipDbCheck: boolean = false) => {
@@ -335,760 +140,275 @@ export default function Home() {
       setRetryMessage(null);
       setRetryAttempt(0);
 
+      const cleanedTopic = topic.trim().toLowerCase();
+
+      // Session Cache Check
+      if (sessionCache.current.has(cleanedTopic) && !skipDbCheck) {
+        const cached = sessionCache.current.get(cleanedTopic);
+        setTopic(cached.normalized_topic);
+        setFlashcards(cached.flashcards);
+        setLoading(false);
+        setSavedSuccess(true);
+        return;
+      }
+
       try {
-        // Step 0: Topic Normalization
-        const normRes = await fetchWithRetry("/api/normalize", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ topic: topic.trim() }),
-        }, 5, (seconds, attempt) => {
-          setRetryMessage(`Hệ thống đang bận, đang tự động thử lại sau ${seconds}s...`);
-          setRetryCountdown(seconds);
-          setRetryAttempt(attempt);
-        });
-        
-        setRetryMessage(null);
-        setRetryCountdown(null);
-        setRetryAttempt(0);
-
-        if (!normRes.ok) {
-          if (normRes.status === 503 || normRes.status === 429) {
-            throw new Error("Hệ thống đang tạm thời quá tải. Vui lòng thử lại sau ít phút.");
-          }
-          throw new Error("Không thể chuẩn hóa chủ đề.");
-        }
-
-        const normData = await normRes.json();
-        let normalizedTopic = normData.normalizedTopic || topic.trim();
-
-        // Step A: Unified Topic Search (Global Search)
-        // Find ANY existing set with this normalized topic, regardless of owner
-        let existingData = null;
-
-        const query = supabase
-          .from("flashcard_sets")
-          .select("*")
-          .ilike("normalized_topic", normalizedTopic);
-
-        // Removed user_id filter to allow global topic search
-
-        const {
-          data: existingSet,
-          error: dbError,
-        } = await query.limit(1).maybeSingle();
-
-        if (!dbError && existingSet) {
-          existingData = existingSet;
-        }
-
-        if (existingData && !skipDbCheck) {
-          console.log(
-            "Found in DB (Unified - Normalized):",
-            existingData,
-          );
-          const existingCards =
-            existingData.cards as Flashcard[];
-
-          if (
-            existingCards.length >= quantity
-          ) {
-            console.log(
-              `Found ${existingCards.length} cards in DB. No API call needed.`,
-            );
-            const subset = shuffleArray(
-              existingCards,
-            ).slice(0, quantity);
-            setFlashcards(subset);
-            setSavedSuccess(true);
-            setLoading(false);
-            return;
-          }
-        }
-
-        // Calculate how many to fetch
-        let countToFetch = quantity;
-        let existingCards: Flashcard[] = [];
-        let setIdToUpdate: string | null = null;
-        let currentContributors: string[] = [];
-
-        if (existingData) {
-          console.log("Aggregating: true");
-          existingCards =
-            existingData.cards as Flashcard[];
-          setIdToUpdate = existingData.id;
-          currentContributors =
-            existingData.contributor_ids || [];
-
-          if (!skipDbCheck) {
-            countToFetch =
-              quantity - existingCards.length;
-          }
-        }
-
-        if (countToFetch <= 0) countToFetch = 5;
-
-        console.log(
-          `Fetching ${countToFetch} new cards... (Aggregating: ${!!existingData})`,
-        );
-
-        // Call API
         const res = await fetchWithRetry(
           "/api/generate",
           {
             method: "POST",
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
-            body: JSON.stringify({
-              topic,
-              count: countToFetch,
-              skipDb: true,
-              userId,
-            }),
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ topic: topic.trim(), count: quantity, userId }),
           },
           5,
           (seconds, attempt) => {
-            setRetryMessage(`Hệ thống đang bận, đang tự động thử lại sau ${seconds}s...`);
-            setRetryCountdown(seconds);
+            setRetryMessage(`Hệ thống đang bận (429), đang tự động nghỉ ngơi 30s để AI 'hạ nhiệt'...`);
+            setRetryCountdown(30);
             setRetryAttempt(attempt);
-          }
+          },
+          30000
         );
 
         setRetryMessage(null);
         setRetryCountdown(null);
-        setRetryAttempt(0);
 
         if (!res.ok) {
-          const errorData = await res
-            .json()
-            .catch(() => ({}));
-          
-          if (res.status === 503 || res.status === 429) {
-             throw new Error("Hệ thống đang tạm thời quá tải. Vui lòng thử lại sau ít phút.");
+          const errorData = await res.json().catch(() => ({}));
+          if (res.status === 429) {
+            setCountdown(30);
+            throw new Error("Hệ thống quá tải. Vui lòng đợi 30 giây.");
           }
-          
-          throw new Error("Something went wrong with the AI generation.");
+          throw new Error(errorData.error || "Generation failed.");
         }
 
-        const apiData = await res.json();
-        let newCards: Flashcard[] = [];
-
-        if (Array.isArray(apiData))
-          newCards = apiData;
-        else if (
-          apiData.flashcards &&
-          Array.isArray(apiData.flashcards)
-        )
-          newCards = apiData.flashcards;
-        else newCards = [];
-
-        if (newCards.length > 0) {
-          // Aggregation Logic
-          const mergedCards = [
-            ...existingCards,
-            ...newCards,
-          ];
-          setFlashcards(mergedCards);
-
-          // Contributor Logic
-          const updatedContributors = [
-            ...currentContributors,
-          ];
-          if (
-            userId &&
-            !updatedContributors.includes(
-              userId,
-            )
-          ) {
-            updatedContributors.push(userId);
-          }
-
-          if (setIdToUpdate) {
-            // Update Existing Set (Unified)
-            // Removed user_id from update payload (except implicitly via contributor_ids logic)
-            const updatePayload: {
-              cards: Flashcard[];
-              contributor_ids?: string[];
-            } = {
-              cards: mergedCards,
-            };
-
-            if (userId) {
-              updatePayload.contributor_ids =
-                updatedContributors;
-            }
-
-            const { error: updateError } =
-              await supabase
-                .from("flashcard_sets")
-                .update(updatePayload)
-                .eq("id", setIdToUpdate);
-
-            if (updateError) {
-              console.warn(
-                "Update Error:",
-                updateError,
-              );
-              // Retry without contributors if it fails (fallback)
-              const { error: retryError } =
-                await supabase
-                  .from("flashcard_sets")
-                  .update({
-                    cards: mergedCards,
-                  })
-                  .eq("id", setIdToUpdate);
-              if (retryError) throw retryError;
-            }
-
-            setToastMessage(
-              `Successfully synchronized with the global '${normalizedTopic}' collection!`,
-            );
-            setTimeout(
-              () => setToastMessage(null),
-              5000,
-            );
-          } else {
-            // Insert New Set
-            // Removed user_id from insert payload
-            const { error: insertError } =
-              await supabase
-                .from("flashcard_sets")
-                .insert([
-                  {
-                    topic,
-                    normalized_topic: normalizedTopic,
-                    cards: mergedCards,
-                    contributor_ids: userId
-                      ? [userId]
-                      : [],
-                  },
-                ]);
-            if (insertError) throw insertError;
-          }
+        const data = await res.json();
+        if (data.flashcards && Array.isArray(data.flashcards)) {
+          setTopic(data.normalized_topic);
+          setFlashcards(data.flashcards);
+          sessionCache.current.set(cleanedTopic, {
+            normalized_topic: data.normalized_topic,
+            flashcards: data.flashcards
+          });
           setSavedSuccess(true);
           fetchRecentSets();
-        } else {
-          setFlashcards(existingCards);
+          setToastMessage(`Đã chuẩn hóa thành "${data.normalized_topic}"!`);
+          setTimeout(() => setToastMessage(null), 5000);
         }
-      } catch (err: unknown) {
-        console.error("Error generating:", err);
-        if (isRateLimitError(err)) {
-          setCountdown(err.retryDelay || 30);
-          setError(err.message);
-        } else if (
-          err instanceof Error &&
-          err.message.startsWith("{")
-        ) {
-          try {
-            const parsed = JSON.parse(
-              err.message,
-            );
-            if (parsed.code === 429) {
-              setCountdown(
-                parsed.retryDelay || 30,
-              );
-              setError(parsed.message);
-            } else {
-              setError(
-                parsed.message ||
-                  "Something went wrong",
-              );
-            }
-          } catch {
-            setError(err.message);
-          }
-        } else {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "An unknown error occurred",
-          );
-        }
+      } catch (err: any) {
+        console.error("Generate Error:", err);
+        setError(err.message || "Something went wrong.");
       } finally {
         setLoading(false);
       }
     },
-    [
-      topic,
-      quantity,
-      userId,
-      supabase,
-      shuffleArray,
-      fetchRecentSets,
-    ],
+    [topic, quantity, userId, fetchRecentSets]
   );
 
-  const handleGenerateNew =
-    useCallback(async () => {
-      if (loading) return;
-      if (mode === "study") {
-        if (
-          !window.confirm(
-            "Generating new cards will interrupt your study session. Continue?",
-          )
-        ) {
-          return;
-        }
+  const handleGenerateNew = useCallback(async () => {
+    if (loading) return;
+    if (mode === "study" && !window.confirm("Generating new cards will interrupt your study session. Continue?")) return;
+    await coreGenerate(true);
+  }, [loading, mode, coreGenerate]);
+
+  const handleAdminMerge = async () => {
+    if (!confirm("Are you sure you want to merge duplicate topics?")) return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/merge", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        setToastMessage(data.message);
+        fetchRecentSets();
+      } else {
+        setError(data.error || "Failed to merge topics");
       }
-      await coreGenerate(true);
-    }, [loading, mode, coreGenerate]);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Keyboard Shortcuts
   useEffect(() => {
-    const handleKeyDown = (
-      e: any,
-    ) => {
-      // Ignore if typing in an input
-      if (
-        document.activeElement?.tagName ===
-          "INPUT" ||
-        document.activeElement?.tagName ===
-          "TEXTAREA"
-      ) {
-        return;
-      }
-
-      if (e.key.toLowerCase() === "s") {
-        e.preventDefault();
-        handleShuffle();
-      }
-      if (e.key.toLowerCase() === "n") {
-        e.preventDefault();
-        handleGenerateNew();
-      }
-      
-      // Shortcut 'Shift + M': Toggle Admin Sidebar
-      if (isAdmin && e.shiftKey && e.key.toLowerCase() === "m") {
-        e.preventDefault();
-        setShowAdminSidebar(prev => !prev);
-      }
+    const handleKeyDown = (e: any) => {
+      if (["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName || "")) return;
+      if (e.key.toLowerCase() === "s") { e.preventDefault(); handleShuffle(); }
+      if (e.key.toLowerCase() === "n") { e.preventDefault(); handleGenerateNew(); }
+      if (isAdmin && e.shiftKey && e.key.toLowerCase() === "m") { e.preventDefault(); setShowAdminSidebar(p => !p); }
     };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleShuffle, handleGenerateNew, isAdmin]);
 
-    window.addEventListener(
-      "keydown",
-      handleKeyDown,
-    );
-    return () =>
-      window.removeEventListener(
-        "keydown",
-        handleKeyDown,
-      );
-  }, [handleShuffle, handleGenerateNew, isAdmin]); // Re-binds when handlers change
+  // Countdown timers
+  useEffect(() => {
+    if (!countdown || countdown <= 0) return;
+    const t = setInterval(() => setCountdown(p => p && p > 0 ? p - 1 : 0), 1000);
+    return () => clearInterval(t);
+  }, [countdown]);
 
-  const generateFlashcards = useCallback(
-    () => coreGenerate(false),
-    [coreGenerate],
-  );
+  useEffect(() => {
+    if (!retryCountdown || retryCountdown <= 0) return;
+    const t = setInterval(() => setRetryCountdown(p => p && p > 0 ? p - 1 : 0), 1000);
+    return () => clearInterval(t);
+  }, [retryCountdown]);
 
-  const loadFromHistory = (
-    set: FlashcardSet,
-  ) => {
-    setTopic(set.topic);
-    setFlashcards(set.cards);
-    setSavedSuccess(false); // Already saved
-    setError(null);
-  };
-
-  const filteredRecentSets = useMemo(() => {
-    return recentSets.filter((set) => {
-      const matchesSearch = set.topic
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase());
-
-      let matchesHard = true;
-      if (showHardOnly) {
-        matchesHard = set.cards.some(
-          (card) =>
-            progress[card.front]?.difficulty ===
-            "hard",
-        );
-      }
-      return matchesSearch && matchesHard;
+  const filteredSets = useMemo(() => {
+    return recentSets.filter(s => {
+      const low = searchTerm.toLowerCase();
+      const match = s.topic.toLowerCase().includes(low) || 
+                   s.normalized_topic.toLowerCase().includes(low) ||
+                   (s.aliases || []).some(a => a.toLowerCase().includes(low));
+      if (!match) return false;
+      if (showHardOnly) return s.cards.some(c => progress[c.front]?.difficulty === "hard");
+      return true;
     });
-  }, [
-    recentSets,
-    searchTerm,
-    showHardOnly,
-    progress,
-  ]);
+  }, [recentSets, searchTerm, showHardOnly, progress]);
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
-      {/* Header Section */}
       <div className="text-center space-y-4">
-        <h1 className="text-4xl font-extrabold tracking-tight text-transparent bg-clip-text bg-linear-to-r from-indigo-400 to-cyan-400 sm:text-5xl">
-          AI Flashcards Generator
-        </h1>
-        <p className="text-lg text-slate-400 max-w-2xl mx-auto">
-          Create flashcards instantly from any
-          topic. Enter a subject, choose your
-          quantity, and start learning.
-        </p>
+        <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-linear-to-r from-indigo-400 to-cyan-400 sm:text-5xl">AI Flashcards</h1>
+        <p className="text-lg text-slate-400">Create flashcards instantly from any topic.</p>
       </div>
 
-      {/* Input Section */}
-      <div className="bg-slate-800/50 rounded-2xl shadow-xl border border-slate-700/50 p-6 md:p-8 space-y-6 backdrop-blur-sm">
+      <div className="bg-slate-800/50 rounded-2xl p-6 md:p-8 space-y-6 border border-slate-700/50 backdrop-blur-sm shadow-xl">
         <div className="flex flex-col md:flex-row gap-4">
           <div className="flex-1">
-            <label
-              htmlFor="topic"
-              className="block text-sm font-medium text-slate-300 mb-2"
-            >
-              What do you want to learn?
-            </label>
+            <label className="block text-sm font-medium text-slate-300 mb-2">Topic</label>
             <input
-              id="topic"
               type="text"
               value={topic}
-              onChange={(e) =>
-                setTopic(e.target.value)
-              }
-              placeholder="e.g., Quantum Physics, Spanish Verbs, React Hooks..."
-              className="w-full px-4 py-3 rounded-xl border border-slate-600 bg-slate-900/50 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all text-white placeholder:text-slate-500"
-              onKeyDown={(e: KeyboardEvent) =>
-                e.key === "Enter" &&
-                generateFlashcards()
-              }
+              onChange={(e) => setTopic(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && coreGenerate()}
+              placeholder="e.g., Quantum Physics, React Hooks..."
+              className="w-full px-4 py-3 rounded-xl bg-slate-900/50 border border-slate-600 text-white outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
           <div className="w-full md:w-32">
-            <label
-              htmlFor="quantity"
-              className="block text-sm font-medium text-slate-300 mb-2"
-            >
-              Quantity
-            </label>
+            <label className="block text-sm font-medium text-slate-300 mb-2">Quantity</label>
             <input
-              id="quantity"
               type="number"
-              min={1}
-              max={50}
-              value={quantity || ""}
-              onChange={(e) => {
-                const val = e.target.value === "" ? 0 : parseInt(e.target.value, 10);
-                setQuantity(Math.min(50, Math.max(0, val)));
-              }}
-              className="w-full px-4 py-3 rounded-xl border border-slate-600 bg-slate-900/50 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all text-white placeholder:text-slate-500"
+              min={1} max={50}
+              value={quantity}
+              onChange={(e) => setQuantity(Number(e.target.value))}
+              className="w-full px-4 py-3 rounded-xl bg-slate-900/50 border border-slate-600 text-white outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
         </div>
 
-        {error && (
-          <div className="p-4 bg-red-500/10 text-red-400 rounded-xl text-sm flex items-center gap-2 animate-in fade-in slide-in-from-top-2 border border-red-500/20">
-            <span className="font-bold">
-              Error:
-            </span>{" "}
-            {typeof error === "string"
-              ? error
-              : "An unexpected error occurred. Please try again."}
-          </div>
-        )}
-
+        {error && <div className="p-4 bg-red-500/10 text-red-400 rounded-xl border border-red-500/20 text-sm">Error: {error}</div>}
         {retryCountdown !== null && retryCountdown > 0 && (
-          <div className="p-3 bg-amber-500/10 text-amber-400 rounded-lg text-sm flex items-center gap-2 animate-in fade-in slide-in-from-top-1 border border-amber-500/20 max-w-fit mx-auto">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            Hệ thống đang bận, đang tự động thử lại sau {retryCountdown}s...
+          <div className="p-3 bg-amber-500/10 text-amber-400 rounded-lg text-sm border border-amber-500/20 animate-pulse text-center">
+            {retryMessage} ({retryCountdown}s)
           </div>
         )}
 
         <button
-          onClick={generateFlashcards}
+          onClick={() => coreGenerate(false)}
           disabled={loading || !topic.trim()}
-          className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 shadow-lg hover:shadow-indigo-500/25 active:scale-[0.99]"
+          className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-500 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
         >
-          {loading ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              {retryAttempt > 0 ? (
-                `Hệ thống đang nỗ lực kết nối... (Lần ${retryAttempt}/5)`
-              ) : flashcards.length > 0 ? (
-                "Adding Cards..."
-              ) : (
-                "Generating..."
-              )}
-            </>
-          ) : (
-            <>
-              <Sparkles className="w-5 h-5" />
-              Generate Flashcards
-            </>
-          )}
+          {loading ? <Loader2 className="animate-spin" /> : <Sparkles />}
+          {loading ? "Processing..." : "Generate Flashcards"}
         </button>
       </div>
 
-      {/* Main Content Area */}
       {flashcards.length > 0 && (
-        <div
-          className={
-            isFocusMode
-              ? "fixed inset-0 z-[100] bg-slate-900/95 backdrop-blur-xl p-4 flex flex-col items-center justify-center animate-in fade-in duration-300"
-              : "space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500"
-          }
-        >
-          <div
-            className={
-              isFocusMode
-                ? "w-full max-w-5xl relative z-10 flex flex-col h-full items-center justify-center gap-4"
-                : ""
-            }
-          >
-            <div
-              className={`flex flex-col md:flex-row justify-between items-center gap-4 bg-white dark:bg-slate-800 p-4 rounded-xl border border-gray-100 dark:border-slate-700 shadow-sm transition-all duration-300 ${
-                isFocusMode
-                  ? "absolute top-4 right-4 bg-transparent border-none shadow-none w-auto p-0"
-                  : "w-full"
-              }`}
-            >
-              <div
-                className={`flex items-center gap-2 ${
-                  isFocusMode ? "hidden" : ""
-                }`}
-              >
-                <div className="bg-green-100 text-green-700 p-2 rounded-full">
-                  <BrainCircuit className="w-5 h-5" />
-                </div>
-                <div>
-                  <h2 className="font-bold text-gray-900 dark:text-white">
-                    {topic}
-                  </h2>
-                  <p className="text-xs text-gray-500">
-                    {flashcards.length} cards
-                    generated
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                {savedSuccess && (
-                  <span className="text-green-600 text-sm font-medium flex items-center gap-1 bg-green-50 px-3 py-1 rounded-full">
-                    <CheckCircle className="w-4 h-4" />
-                    Saved to History
-                  </span>
-                )}
-                <DisplayController
-                  currentMode={mode}
-                  onModeChange={
-                    handleModeChange
-                  }
-                  onShuffle={handleShuffle}
-                  onGenerateNew={
-                    handleGenerateNew
-                  }
-                  loadingNew={loading}
-                  onToggleFocus={() =>
-                    setIsFocusMode(!isFocusMode)
-                  }
-                  isFocusMode={isFocusMode}
-                />
-              </div>
-            </div>
-
-            <div
-              className={`min-h-100 w-full ${
-                isFocusMode
-                  ? "flex-1 flex items-center justify-center"
-                  : ""
-              }`}
-            >
-              {mode === "grid" && (
-                <GridMode
-                  flashcards={flashcards}
-                />
-              )}
-              {mode === "study" && (
-                <StudyMode
-                  flashcards={flashcards}
-                />
-              )}
-              {mode === "list" && (
-                <ListMode
-                  flashcards={flashcards}
-                />
-              )}
-            </div>
+        <div className={isFocusMode ? "fixed inset-0 z-[100] bg-slate-900/95 flex flex-col p-4 animate-in fade-in" : "space-y-6"}>
+          <div className="flex justify-between items-center bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm">
+             <div className={isFocusMode ? "hidden" : "flex items-center gap-2"}>
+               <BrainCircuit className="text-indigo-400" />
+               <div>
+                 <h2 className="font-bold text-white uppercase tracking-tight">{topic}</h2>
+                 <p className="text-xs text-slate-500">{flashcards.length} cards</p>
+               </div>
+             </div>
+             <div className="flex items-center gap-3">
+               {savedSuccess && <span className="text-emerald-400 text-xs font-bold px-3 py-1 bg-emerald-500/10 rounded-full border border-emerald-500/20">SAVED</span>}
+               <DisplayController
+                 currentMode={mode}
+                 onModeChange={handleModeChange}
+                 onShuffle={handleShuffle}
+                 onGenerateNew={handleGenerateNew}
+                 loadingNew={loading}
+                 onToggleFocus={() => setIsFocusMode(!isFocusMode)}
+                 isFocusMode={isFocusMode}
+               />
+             </div>
+          </div>
+          <div className="flex-1 h-full min-h-[400px]">
+            {mode === "grid" && <GridMode flashcards={flashcards} />}
+            {mode === "study" && <StudyMode flashcards={flashcards} />}
+            {mode === "list" && <ListMode flashcards={flashcards} />}
           </div>
         </div>
       )}
 
-      {/* Recent History */}
-      {(recentSets.length > 0 ||
-        searchTerm) && (
-        <div className="pt-8 border-t border-gray-200 dark:border-slate-800">
+      {recentSets.length > 0 && (
+        <div className="pt-8 border-t border-slate-800">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-            <h3 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-              <History className="w-5 h-5" />
-              Recent Sets
-            </h3>
-
+            <h3 className="text-xl font-bold text-white flex items-center gap-2"><History className="text-indigo-400"/> History</h3>
             <div className="flex gap-2">
-              <div className="relative w-full md:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                 <input
-                  type="text"
-                  placeholder="Search topics..."
+                  placeholder="Search history..."
                   value={searchTerm}
-                  onChange={(e) =>
-                    setSearchTerm(
-                      e.target.value,
-                    )
-                  }
-                  className="w-full pl-9 pr-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 border-none focus:ring-2 focus:ring-indigo-500 text-sm text-slate-900 dark:text-white placeholder:text-slate-500"
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-9 pr-4 py-2 rounded-lg bg-slate-800 text-sm text-white focus:ring-2 focus:ring-indigo-500 outline-none"
                 />
               </div>
               <button
-                onClick={() =>
-                  setShowHardOnly(!showHardOnly)
-                }
-                className={`p-2 rounded-lg border transition-all ${
-                  showHardOnly
-                    ? "bg-rose-100 border-rose-200 text-rose-600 dark:bg-rose-900/30 dark:border-rose-800 dark:text-rose-400"
-                    : "bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-slate-500"
-                }`}
-                title="Show Hard Only"
+                onClick={() => setShowHardOnly(!showHardOnly)}
+                className={`p-2 rounded-lg border ${showHardOnly ? "bg-rose-500/20 border-rose-500/40 text-rose-400" : "bg-slate-800 border-slate-700 text-slate-500"}`}
               >
                 <Filter className="w-4 h-4" />
               </button>
             </div>
           </div>
-
-          {filteredRecentSets.length === 0 ? (
-            <div className="text-center py-12 text-slate-500">
-              No sets found matching your
-              filters.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {filteredRecentSets.map((set) => (
-                <button
-                  key={set.id}
-                  onClick={() =>
-                    loadFromHistory(set)
-                  }
-                  className="group text-left bg-white dark:bg-slate-800 p-4 rounded-xl border border-gray-200 dark:border-slate-700 hover:border-black dark:hover:border-indigo-500 transition-all hover:shadow-md"
-                >
-                  <div className="font-semibold text-gray-900 dark:text-white truncate mb-1 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-                    {set.topic}
-                  </div>
-                  <div className="flex justify-between items-center text-xs text-gray-500">
-                    <span>
-                      {set.cards?.length || 0}{" "}
-                      cards
-                    </span>
-                    <span>
-                      {new Date(
-                        set.created_at,
-                      ).toLocaleDateString()}
-                    </span>
-                  </div>
-                  <div className="mt-2 text-xs text-indigo-500 font-medium">
-                    Contributors:{" "}
-                    {set.contributor_ids
-                      ?.length || 0}{" "}
-                    people
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {filteredSets.map(s => (
+              <button
+                key={s.id}
+                onClick={() => { setTopic(s.topic); setFlashcards(s.cards); }}
+                className="text-left bg-slate-800/40 p-4 rounded-xl border border-slate-700/50 hover:border-indigo-500 transition-all group"
+              >
+                <div className="font-bold text-slate-200 truncate group-hover:text-indigo-400">{s.topic}</div>
+                <div className="text-xs text-slate-500 mt-1">{s.cards.length} cards • {new Date(s.created_at).toLocaleDateString()}</div>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Toast Notification */}
       <AnimatePresence>
         {toastMessage && (
           <motion.div
-            initial={{
-              opacity: 0,
-              y: 50,
-              scale: 0.9,
-            }}
-            animate={{
-              opacity: 1,
-              y: 0,
-              scale: 1,
-            }}
-            exit={{
-              opacity: 0,
-              y: 20,
-              scale: 0.95,
-            }}
-            className="fixed bottom-6 right-6 bg-emerald-600 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 z-50 border border-emerald-500/50 backdrop-blur-md"
+            initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-6 right-6 bg-indigo-600 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 z-[100] border border-indigo-400/30"
           >
-            <div className="bg-white/20 p-2 rounded-full shadow-inner">
-              <CheckCircle className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <p className="font-bold text-sm text-emerald-100 uppercase tracking-wider mb-0.5">
-                Success
-              </p>
-              <p className="font-medium text-white">
-                {toastMessage}
-              </p>
-            </div>
+            <CheckCircle className="w-5 h-5" /> {toastMessage}
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Admin Sidebar */}
       <AnimatePresence>
         {isAdmin && showAdminSidebar && (
           <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowAdminSidebar(false)}
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
-            />
-            <motion.div
-              initial={{ x: "100%" }}
-              animate={{ x: 0 }}
-              exit={{ x: "100%" }}
-              transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="fixed right-0 top-0 bottom-0 w-full max-w-sm bg-slate-900 border-l border-slate-800 shadow-2xl z-[60] flex flex-col"
-            >
-              <div className="p-6 border-b border-slate-800 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <BrainCircuit className="w-6 h-6 text-indigo-500" />
-                  <h2 className="text-xl font-bold text-white">Hệ thống</h2>
-                </div>
-                <button
-                  onClick={() => setShowAdminSidebar(false)}
-                  className="p-2 hover:bg-slate-800 rounded-lg transition-colors text-slate-400"
-                >
-                  <X className="w-5 h-5" /> {/* Changed Filter to X for close icon */}
-                </button>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAdminSidebar(false)} className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110]" />
+            <motion.div initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} className="fixed right-0 top-0 bottom-0 w-full max-w-sm bg-slate-900 border-l border-slate-800 z-[120]">
+              <div className="p-6 border-b border-slate-800 flex justify-between items-center">
+                <h2 className="text-xl font-bold text-white flex items-center gap-2"><Sparkles className="text-indigo-400"/> Admin</h2>
+                <button onClick={() => setShowAdminSidebar(false)} className="text-slate-400 hover:text-white"><X/></button>
               </div>
-
-              <div className="p-6 flex-1 space-y-6">
-                <div>
-                  <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">
-                    Thủ công gộp dữ liệu
-                  </h3>
-                  <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 space-y-4">
-                    <p className="text-sm text-amber-200/80 leading-relaxed">
-                      Quét và gộp các bộ thẻ có cùng chủ đề đã chuẩn hóa. Quá trình này sẽ tổng hợp thẻ và danh sách người đóng góp.
-                    </p>
-                    <button
-                      onClick={handleAdminMerge}
-                      disabled={loading}
-                      className="w-full py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-bold shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                    >
-                      {loading ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Sparkles className="w-4 h-4" />
-                      )}
-                      Dọn dẹp Database (Merge)
-                    </button>
-                  </div>
-                </div>
-
-                <div className="pt-6 border-t border-slate-800">
-                  <p className="text-xs text-slate-500 italic">
-                    Tip: Nhấn Shift + M để mở nhanh bảng điều khiển này.
-                  </p>
+              <div className="p-6 space-y-6">
+                <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-4">
+                  <p className="text-sm text-amber-200/80 leading-relaxed">Gộp các bộ thẻ trùng lặp dựa trên tên chuẩn hóa để tối ưu dung lượng.</p>
+                  <button onClick={handleAdminMerge} disabled={loading} className="w-full py-3 bg-amber-600 rounded-lg font-bold text-white hover:bg-amber-500 transition-all flex justify-center gap-2">
+                    {loading ? <Loader2 className="animate-spin" /> : "Merge Duplicates"}
+                  </button>
                 </div>
               </div>
             </motion.div>

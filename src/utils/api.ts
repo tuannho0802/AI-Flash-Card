@@ -5,7 +5,8 @@ export async function fetchWithRetry(
     url: string,
     options: RequestInit = {},
     maxRetries: number = 5,
-    onRetry?: (nextRetryInSeconds: number, attempt: number) => void
+    onRetry?: (nextRetryInSeconds: number, attempt: number) => void,
+    force429Delay?: number
 ): Promise<Response> {
     const delays = [2000, 5000, 10000, 15000, 20000];
     let lastError: Error | null = null;
@@ -18,7 +19,10 @@ export async function fetchWithRetry(
             if (response.status === 503 || response.status === 429) {
                 if (attempt === maxRetries) return response;
 
-                const delay = delays[attempt] || 20000;
+                const delay = response.status === 429 && force429Delay
+                    ? force429Delay
+                    : (delays[attempt] || 20000);
+
                 if (onRetry) onRetry(delay / 1000, attempt + 1);
 
                 await new Promise(resolve => setTimeout(resolve, delay));

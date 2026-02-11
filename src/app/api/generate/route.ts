@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { createClient } from "@/utils/supabase/server";
+import { Flashcard } from "@/types/flashcard";
 
 export async function POST(req: Request) {
     try {
@@ -10,6 +11,7 @@ export async function POST(req: Request) {
         const apiKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY;
 
         if (!apiKey) {
+            console.error("Generate API: API Key is missing");
             return Response.json({ error: "API Key is missing" }, { status: 500 });
         }
 
@@ -20,141 +22,180 @@ export async function POST(req: Request) {
             return Response.json({ error: "Topic is required" }, { status: 400 });
         }
 
-        // Initialize Gemini with v1beta to access 'gemini-flash-latest'
         const genAI = new GoogleGenAI({ apiKey, apiVersion: 'v1beta' });
+        const models = ['gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemma-3-27b-it'];
 
-        // Prompt engineering: Explicitly request raw JSON and define structure
-        const prompt = `Create ${count} educational flashcards about the topic: "${topic}". 
-        Language: Vietnamese.
-        Return ONLY a raw JSON array. 
-        Do not include markdown formatting (like \`\`\`json).
-        Do not include any introductory or concluding text.
-        Structure: [{"front": "Question/Term", "back": "Answer/Definition"}]`;
+        const prompt = `Your task is a two-step educational process for the topic: "${topic}".
+        
+        Step 1: Normalize the topic name into a standard database key.
+        - Rules: English, Title Case (e.g., "Python Programming").
+        - Programming: Use "[Language] Programming" (e.g., "học python" -> "Python Programming").
+        - Subject Mapping: JS/Javascript -> "JavaScript Programming", Py/Python -> "Python Programming", React -> "React Framework".
+        - Focus: Core subject only, ignore filler words like "học", "cơ bản", "basics".
 
-        // Attempt to use 'gemini-flash-latest' which often points to the stable Flash model.
-        // This is an attempt to bypass the 2.0 rate limits if 2.0-flash is exhausted.
-        const result = await genAI.models.generateContent({
-            model: 'gemini-flash-latest',
-            contents: [{
-                role: 'user',
-                parts: [{ text: prompt }]
-            }],
-        });
+        Step 2: Generate ${count} high-quality educational flashcards for this topic.
+        - Language: Vietnamese.
+        - Structure: Question/Term on the front, Answer/Definition on the back.
 
-        console.log("Model used: gemini-flash-latest");
-        const text = result.text;
+        Return ONLY a raw JSON object with this exact structure:
+        {
+          "normalized_topic": "Consolidated Title",
+          "flashcards": [{"front": "...", "back": "..."}]
+        }
+        
+        Do not include markdown headers, backticks, or any other text.`;
 
-        console.log("Gemini API Response Text:", text);
+        console.log(`Generate API: Generating & Normalizing for: ${topic}`);
+
+        let text = "";
+        let usedModel = "";
+        let lastError: any = null;
+
+        for (const modelName of models) {
+            try {
+                console.log(`Generate API: Trying model ${modelName} via v1beta...`);
+
+                const result = await genAI.models.generateContent({
+                    model: modelName,
+                    contents: [{
+                        // @ts-ignore
+                        role: 'user',
+                        parts: [{ text: prompt }]
+                    }],
+                });
+
+                // In @google/genai (GA), we use result.text or response.text()
+                if (typeof result.text === 'string') {
+                    text = result.text;
+                } else if ((result as any).response?.text) {
+                    text = (result as any).response.text();
+                }
+
+                if (text) {
+                    usedModel = modelName;
+                    console.log(`Generate API: Model ${modelName} succeeded!`);
+                    break;
+                }
+            } catch (err: any) {
+                lastError = err;
+                const status = err.status || err.code;
+                console.warn(`Generate API: Model ${modelName} failed with status ${status}`);
+
+                // Fallback on 429 (Rate limit), 503 (Overload), or 404 (Not Found)
+                if (status === 429 || status === 503 || status === 404 || err.message?.includes("429") || err.message?.includes("Quota")) {
+                    console.log(`Generate API: Falling back from ${modelName}...`);
+                    continue;
+                } else {
+                    // Fatal error for this request
+                    throw err;
+                }
+            }
+        }
 
         if (!text) {
-            throw new Error("Empty response from AI");
+            throw lastError || new Error("All models failed to return a response.");
         }
 
-        // Manual JSON Parsing with Robust Cleanup
-        let data;
+        // Robust JSON Parsing
+        let parsedData;
         try {
-            // Remove markdown code blocks if any
             const cleanText = text.replace(/```json|```/g, "").trim();
-
-            // Find JSON array bounds
-            const jsonStart = cleanText.indexOf('[');
-            const jsonEnd = cleanText.lastIndexOf(']') + 1;
-
-            if (jsonStart === -1 || jsonEnd === 0) {
-                throw new Error("No JSON array found in response");
-            }
-
-            const jsonBody = cleanText.slice(jsonStart, jsonEnd);
-            data = JSON.parse(jsonBody);
-
-            if (!Array.isArray(data)) {
-                throw new Error("Parsed data is not an array");
-            }
-        } catch (parseError) {
-            console.error("Manual Parsing Error:", parseError);
-            throw new Error(`Failed to parse AI response: ${(parseError as Error).message}`);
+            const jsonStart = cleanText.indexOf('{');
+            const jsonEnd = cleanText.lastIndexOf('}') + 1;
+            parsedData = JSON.parse(cleanText.slice(jsonStart, jsonEnd));
+        } catch (e) {
+            console.error(`Generate API: AI Response Parsing Failed (Model: ${usedModel}):`, text);
+            throw new Error(`Failed to parse AI response from ${usedModel}.`);
         }
 
-        // Save to Supabase (only if skipDb is false)
-        let savedId = null;
-        let dbErrorDetail = null;
+        const { normalized_topic, flashcards } = parsedData;
 
-        if (!skipDb) {
-            try {
-                console.log("Attempting to insert into Supabase:", { topic, cardsCount: data.length, userId });
-                const { data: insertedData, error: insertError } = await supabase
-                    .from('flashcard_sets')
-                    .insert([
-                        { topic: topic, cards: data, user_id: userId }
-                    ])
-                    .select('id')
-                    .single();
-
-                console.log("Supabase Response:", insertedData, insertError);
-
-                if (insertError) {
-                    console.error("Supabase Insert Failed:", {
-                        code: insertError.code,
-                        message: insertError.message,
-                        details: insertError.details,
-                        hint: insertError.hint
-                    });
-                    dbErrorDetail = insertError;
-                } else if (insertedData) {
-                    console.log("Supabase Insert Success. ID:", insertedData.id);
-                    savedId = insertedData.id;
-                }
-            } catch (dbError) {
-                console.error("Supabase Unexpected Exception:", dbError);
-                dbErrorDetail = dbError;
-            }
+        if (!normalized_topic || !Array.isArray(flashcards)) {
+            throw new Error("Invalid structure from AI response.");
         }
 
-        return Response.json({ flashcards: data, id: savedId, dbError: dbErrorDetail });
+        if (skipDb) {
+            return Response.json({ normalized_topic, flashcards });
+        }
 
-    } catch (error: unknown) {
-        console.error("API Error Full Object:", JSON.stringify(error, null, 2));
+        // Database Persistence
+        console.log(`Generate API: Checking for existing set '${normalized_topic}'...`);
 
-        const errorMessage = error instanceof Error ? error.message : "Internal Server Error";
+        const { data: existingSet } = await supabase
+            .from("flashcard_sets")
+            .select("*")
+            .ilike("normalized_topic", normalized_topic)
+            .limit(1)
+            .maybeSingle();
+
+        let finalResultId = null;
+
+        if (existingSet) {
+            console.log(`Generate API: Merging into existing set ID: ${existingSet.id}`);
+
+            const cardsMap = new Map<string, Flashcard>();
+            (existingSet.cards || []).forEach((c: Flashcard) => {
+                cardsMap.set(c.front.trim().toLowerCase(), c);
+            });
+            flashcards.forEach((c: Flashcard) => {
+                const key = c.front.trim().toLowerCase();
+                if (!cardsMap.has(key)) cardsMap.set(key, c);
+            });
+            const mergedCards = Array.from(cardsMap.values());
+
+            const contributors = new Set(existingSet.contributor_ids || []);
+            if (userId) contributors.add(userId);
+
+            const aliases = new Set(existingSet.aliases || []);
+            aliases.add(topic.trim());
+
+            const { error: updateError } = await supabase
+                .from("flashcard_sets")
+                .update({
+                    cards: mergedCards,
+                    contributor_ids: Array.from(contributors),
+                    aliases: Array.from(aliases)
+                })
+                .eq("id", existingSet.id);
+
+            if (updateError) console.error("Update error:", updateError);
+            finalResultId = existingSet.id;
+        } else {
+            console.log(`Generate API: Creating new set for: ${normalized_topic}`);
+
+            const { data: newSet, error: insertError } = await supabase
+                .from("flashcard_sets")
+                .insert([{
+                    topic: topic,
+                    normalized_topic: normalized_topic,
+                    cards: flashcards,
+                    contributor_ids: userId ? [userId] : [],
+                    aliases: [topic.trim()]
+                }])
+                .select("id")
+                .single();
+
+            if (insertError) console.error("Insert error:", insertError);
+            if (newSet) finalResultId = newSet.id;
+        }
+
+        return Response.json({
+            normalized_topic,
+            flashcards,
+            id: finalResultId
+        });
+
+    } catch (error: any) {
+        console.error("Generate API: Fatal Error:", error);
+
         let status = 500;
-        let errorResponse: Record<string, unknown> = { error: errorMessage };
+        let response = { error: error.message || "Internal Server Error" };
 
-        // Handle specific error types
-        if (typeof error === 'object' && error !== null) {
-            const errObj = error as Record<string, unknown>;
-
-            // Check for Rate Limit (429)
-            // The SDK might return 429 in various ways (status, code, or within error object)
-            if (
-                errObj.status === 429 ||
-                errObj.code === 429 ||
-                (errObj.error && (errObj.error as Record<string, unknown>).code === 429) ||
-                errorMessage.includes("429") ||
-                errorMessage.includes("Quota exceeded")
-            ) {
-                status = 429;
-                errorResponse = {
-                    error: "rate_limit",
-                    message: "Hệ thống đang bận hoặc hết hạn mức. Vui lòng thử lại sau.",
-                    retryAfter: 30
-                };
-            }
-            // Check for Not Found (404)
-            else if (
-                errObj.status === 404 ||
-                errObj.code === 404 ||
-                errorMessage.includes("404") ||
-                errorMessage.includes("not found")
-            ) {
-                status = 404;
-                errorResponse = {
-                    error: "model_not_found",
-                    message: "Model không khả dụng hoặc sai phiên bản API.",
-                    details: errorMessage
-                };
-            }
+        if (error.status === 429 || error.code === 429 || error.message?.includes("429") || error.message?.includes("Quota")) {
+            status = 429;
+            response = { error: "rate_limit" } as any;
         }
 
-        return Response.json(errorResponse, { status });
+        return Response.json(response, { status });
     }
 }

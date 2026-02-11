@@ -19,7 +19,7 @@ export async function POST(req: Request) {
             return Response.json({ error: "Forbidden: Admin access required" }, { status: 403 });
         }
 
-        // 1. Fetch all flashcard sets
+        // 1. Fetch ALL flashcard sets
         const { data: allSets, error: fetchError } = await supabase
             .from("flashcard_sets")
             .select("*")
@@ -30,79 +30,118 @@ export async function POST(req: Request) {
             return Response.json({ message: "No sets found to merge." });
         }
 
+        // 2. Group by normalized_topic in JavaScript
+        console.log(`Admin Merge: Total sets fetched: ${allSets.length}`);
+        const groups: Record<string, FlashcardSet[]> = {};
+        allSets.forEach((set: FlashcardSet) => {
+            const rawTopic = (set.topic || "Unknown").trim();
+            const rawNorm = (set.normalized_topic || "").trim();
 
-        // REVISED LOGIC: Let's find rows where normalized_topic is identical (case-insensitive)
-        const normalizedGroups: Record<string, FlashcardSet[]> = {};
-        allSets.forEach((set: any) => {
-            const topicKey = (set.normalized_topic || set.topic || "Unknown").trim().toLowerCase();
-            if (!normalizedGroups[topicKey]) normalizedGroups[topicKey] = [];
-            normalizedGroups[topicKey].push(set);
+            // Aggressive normalization for the key
+            const topicKey = (rawNorm || rawTopic).toLowerCase();
+
+            console.log(`- Set ID: ${set.id}, Topic: "${rawTopic}", Norm: "${rawNorm}", Key: "${topicKey}"`);
+
+            if (!groups[topicKey]) {
+                groups[topicKey] = [];
+            }
+            groups[topicKey].push(set);
         });
 
-        let mergedCount = 0;
-        const results = [];
+        console.log('Groups found keys:', Object.keys(groups));
 
-        for (const [key, sets] of Object.entries(normalizedGroups)) {
+        let mergedTopicsCount = 0;
+        const mergeDetails = [];
+
+        // 3. Perform Merging
+        for (const [key, sets] of Object.entries(groups)) {
             if (sets.length > 1) {
-                // Merge needed
-                const primarySet = sets[0]; // Oldest one
+                const primarySet = sets[0]; // Oldest record
                 const duplicates = sets.slice(1);
+                const duplicateIds = duplicates.map(d => d.id);
 
-                let mergedCards: Flashcard[] = [...(primarySet.cards || [])];
-                let mergedContributors: string[] = [...(primarySet.contributor_ids || [])];
+                console.log(`Groups found: Group '${key}' has ${sets.length} sets. Merging into ID ${primarySet.id}...`);
 
-                for (const duo of duplicates) {
-                    // Combine cards
-                    mergedCards = [...mergedCards, ...(duo.cards || [])];
-                    // Combine contributors
-                    if (duo.user_id) mergedContributors.push(duo.user_id);
-                    if (duo.contributor_ids) {
-                        mergedContributors = [...mergedContributors, ...duo.contributor_ids];
+                // 1. Combine and deduplicate cards by 'front' content
+                const cardsMap = new Map<string, Flashcard>();
+                sets.forEach(s => {
+                    (s.cards || []).forEach((c: Flashcard) => {
+                        const cardKey = c.front.trim().toLowerCase();
+                        if (!cardsMap.has(cardKey)) {
+                            cardsMap.set(cardKey, c);
+                        }
+                    });
+                });
+                const mergedCards = Array.from(cardsMap.values());
+
+                // 2. Combine contributor IDs
+                const contributorIds = new Set<string>();
+                sets.forEach(s => {
+                    if (s.user_id) contributorIds.add(s.user_id);
+                    if (s.contributor_ids) {
+                        s.contributor_ids.forEach(id => contributorIds.add(id));
                     }
-                }
+                });
+                const uniqueContributors = Array.from(contributorIds).filter(id => !!id);
 
-                // Unique contributors
-                mergedContributors = Array.from(new Set(mergedContributors.filter(id => !!id)));
+                // 3. Aggregate aliases (old topics)
+                const aliasesSet = new Set<string>(primarySet.aliases || []);
+                sets.forEach(s => {
+                    if (s.topic && s.topic.toLowerCase() !== key) {
+                        aliasesSet.add(s.topic);
+                    }
+                });
+                const finalAliases = Array.from(aliasesSet);
 
-                // Update primary
+                // 4. Update the primary record
                 const { error: updateError } = await supabase
                     .from("flashcard_sets")
                     .update({
                         cards: mergedCards,
-                        contributor_ids: mergedContributors,
-                        // Update normalized_topic to match the key (Title Case version of first one)
-                        normalized_topic: primarySet.normalized_topic
+                        contributor_ids: uniqueContributors,
+                        aliases: finalAliases,
+                        normalized_topic: primarySet.normalized_topic || primarySet.topic 
                     })
                     .eq("id", primarySet.id);
 
                 if (updateError) {
-                    results.push({ topic: key, status: "error", error: updateError.message });
+                    console.error(`Merge update failed for ${key}:`, updateError);
+                    mergeDetails.push({ topic: key, status: "error", error: updateError.message });
                     continue;
                 }
 
-                // Delete duplicates
-                const duplicateIds = duplicates.map(d => d.id);
+                // 5. Delete redundant records
+                console.log(`- Attempting to delete duplicate IDs: ${JSON.stringify(duplicateIds)}`);
                 const { error: deleteError } = await supabase
                     .from("flashcard_sets")
                     .delete()
                     .in("id", duplicateIds);
 
                 if (deleteError) {
-                    results.push({ topic: key, status: "partial", message: "Merged but failed to delete duplicates", error: deleteError.message });
+                    console.error(`- Merge delete failed for ${key}:`, deleteError);
+                    mergeDetails.push({ topic: key, status: "partial", message: "Merged primary but failed to delete duplicates", error: deleteError.message });
                 } else {
-                    mergedCount++;
-                    results.push({ topic: key, status: "success", merged: sets.length });
+                    console.log(`- Successfully deleted duplicates for ${key}`);
+                    mergedTopicsCount++;
+                    mergeDetails.push({
+                        topic: key,
+                        status: "success",
+                        mergedCount: sets.length,
+                        totalCards: mergedCards.length,
+                        aliases: finalAliases
+                    });
                 }
             }
         }
 
         return Response.json({
-            message: `Successfully processed merges for ${mergedCount} topics.`,
-            details: results
+            message: `Successfully merged duplicates for ${mergedTopicsCount} topics.`,
+            details: mergeDetails,
+            groupsFound: Object.keys(groups).length
         });
 
     } catch (error: any) {
-        console.error("Merge error:", error);
+        console.error("Merge fatal error:", error);
         return Response.json({ error: error.message }, { status: 500 });
     }
 }
