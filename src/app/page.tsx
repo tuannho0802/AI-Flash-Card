@@ -21,6 +21,7 @@ import {
   AnimatePresence,
 } from "framer-motion";
 import { createClient } from "@/utils/supabase/client";
+import { fetchWithRetry } from "@/utils/api";
 import {
   Flashcard,
   FlashcardSet,
@@ -80,6 +81,9 @@ export default function Home() {
   const [userId, setUserId] = useState<
     string | null
   >(null);
+  const [retryMessage, setRetryMessage] = useState<string | null>(null);
+  const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
+  const [retryAttempt, setRetryAttempt] = useState<number>(0);
 
   // Focus Mode & Search State
   const [isFocusMode, setIsFocusMode] =
@@ -229,6 +233,15 @@ export default function Home() {
     }
   }, [savedSuccess]);
 
+  // Retry Countdown Effect
+  useEffect(() => {
+    if (retryCountdown === null || retryCountdown <= 0) return;
+    const timer = setInterval(() => {
+      setRetryCountdown(prev => (prev !== null && prev > 1 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [retryCountdown]);
+
   const coreGenerate = useCallback(
     async (skipDbCheck: boolean = false) => {
       if (!topic.trim()) return;
@@ -237,20 +250,34 @@ export default function Home() {
       setError(null);
       setCountdown(null);
       setSavedSuccess(false);
+      setRetryMessage(null);
+      setRetryAttempt(0);
 
       try {
         // Step 0: Topic Normalization
-        const normRes = await fetch("/api/normalize", {
+        const normRes = await fetchWithRetry("/api/normalize", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ topic: topic.trim() }),
+        }, 5, (seconds, attempt) => {
+          setRetryMessage(`Hệ thống đang bận, đang tự động thử lại sau ${seconds}s...`);
+          setRetryCountdown(seconds);
+          setRetryAttempt(attempt);
         });
         
-        let normalizedTopic = topic.trim();
-        if (normRes.ok) {
-          const normData = await normRes.json();
-          normalizedTopic = normData.normalizedTopic;
+        setRetryMessage(null);
+        setRetryCountdown(null);
+        setRetryAttempt(0);
+
+        if (!normRes.ok) {
+          if (normRes.status === 503 || normRes.status === 429) {
+            throw new Error("Hệ thống đang tạm thời quá tải. Vui lòng thử lại sau ít phút.");
+          }
+          throw new Error("Không thể chuẩn hóa chủ đề.");
         }
+
+        const normData = await normRes.json();
+        let normalizedTopic = normData.normalizedTopic || topic.trim();
 
         // Step A: Unified Topic Search (Global Search)
         // Find ANY existing set with this normalized topic, regardless of owner
@@ -323,7 +350,7 @@ export default function Home() {
         );
 
         // Call API
-        const res = await fetch(
+        const res = await fetchWithRetry(
           "/api/generate",
           {
             method: "POST",
@@ -338,33 +365,28 @@ export default function Home() {
               userId,
             }),
           },
+          5,
+          (seconds, attempt) => {
+            setRetryMessage(`Hệ thống đang bận, đang tự động thử lại sau ${seconds}s...`);
+            setRetryCountdown(seconds);
+            setRetryAttempt(attempt);
+          }
         );
+
+        setRetryMessage(null);
+        setRetryCountdown(null);
+        setRetryAttempt(0);
 
         if (!res.ok) {
           const errorData = await res
             .json()
             .catch(() => ({}));
-          if (
-            res.status === 429 ||
-            errorData.error === "rate_limit"
-          ) {
-            const retryDelay =
-              errorData.retryAfter || 30;
-            throw new Error(
-              JSON.stringify({
-                code: 429,
-                message:
-                  errorData.message ||
-                  `Hệ thống đang bận. Vui lòng đợi ${retryDelay} giây.`,
-                retryDelay,
-              }),
-            );
+          
+          if (res.status === 503 || res.status === 429) {
+             throw new Error("Hệ thống đang tạm thời quá tải. Vui lòng thử lại sau ít phút.");
           }
-          const fullError =
-            errorData.error || errorData;
-          throw new Error(
-            JSON.stringify(fullError),
-          );
+          
+          throw new Error("Something went wrong with the AI generation.");
         }
 
         const apiData = await res.json();
@@ -654,36 +676,33 @@ export default function Home() {
               type="number"
               min={1}
               max={50}
-              value={quantity}
-              onChange={(e) =>
-                setQuantity(
-                  Number(e.target.value),
-                )
-              }
+              value={quantity || ""}
+              onChange={(e) => {
+                const val = e.target.value === "" ? 0 : parseInt(e.target.value, 10);
+                setQuantity(Math.min(50, Math.max(0, val)));
+              }}
               className="w-full px-4 py-3 rounded-xl border border-slate-600 bg-slate-900/50 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all text-white placeholder:text-slate-500"
             />
           </div>
         </div>
 
         {error && (
-          <div className="p-4 bg-red-50 text-red-600 rounded-xl text-sm flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
+          <div className="p-4 bg-red-500/10 text-red-400 rounded-xl text-sm flex items-center gap-2 animate-in fade-in slide-in-from-top-2 border border-red-500/20">
             <span className="font-bold">
               Error:
             </span>{" "}
             {typeof error === "string"
               ? error
-              : JSON.stringify(error)}
+              : "An unexpected error occurred. Please try again."}
           </div>
         )}
 
-        {countdown !== null &&
-          countdown > 0 && (
-            <div className="p-4 bg-yellow-50 text-yellow-700 rounded-xl text-sm flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              System is busy. Retrying in{" "}
-              {countdown}s...
-            </div>
-          )}
+        {retryCountdown !== null && retryCountdown > 0 && (
+          <div className="p-3 bg-amber-500/10 text-amber-400 rounded-lg text-sm flex items-center gap-2 animate-in fade-in slide-in-from-top-1 border border-amber-500/20 max-w-fit mx-auto">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            Hệ thống đang bận, đang tự động thử lại sau {retryCountdown}s...
+          </div>
+        )}
 
         <button
           onClick={generateFlashcards}
@@ -693,9 +712,13 @@ export default function Home() {
           {loading ? (
             <>
               <Loader2 className="w-5 h-5 animate-spin" />
-              {flashcards.length > 0
-                ? "Adding Cards..."
-                : "Generating..."}
+              {retryAttempt > 0 ? (
+                `Hệ thống đang nỗ lực kết nối... (Lần ${retryAttempt}/5)`
+              ) : flashcards.length > 0 ? (
+                "Adding Cards..."
+              ) : (
+                "Generating..."
+              )}
             </>
           ) : (
             <>
