@@ -131,3 +131,9 @@ This project is a modern, AI-powered Flashcard Generator that helps users create
   - *Example*: `useEffect(..., [handleGenerateNew])` requires `const handleGenerateNew = useCallback(...)`.
 - **Callback Dependencies**: Ensure all functions used inside `useCallback` are included in the dependency array. If the used function is defined within the component, it must also be wrapped in `useCallback` to maintain referential equality.
   - *Example*: `useCallback(() => shuffleArray(prev), [shuffleArray])`.
+
+### **LocalStorage & State Persistence**
+
+- **Custom Hooks**: Encapsulate LocalStorage logic in custom hooks (e.g., `useLearningProgress`) for reusability.
+- **Hydration Safety**: Always verify component is mounted (`useEffect` or `isMounted` state) before rendering content derived from LocalStorage to avoid server/client mismatch errors.
+- **Error Handling**: Wrap `JSON.parse` and `localStorage.setItem` in `try-catch` blocks to prevent crashes from corrupted data or quota limits.

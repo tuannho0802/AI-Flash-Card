@@ -5,6 +5,7 @@ import {
   useEffect,
   useCallback,
   KeyboardEvent,
+  useMemo,
 } from "react";
 import {
   Loader2,
@@ -12,6 +13,8 @@ import {
   BrainCircuit,
   History,
   CheckCircle,
+  Search,
+  Filter,
 } from "lucide-react";
 import {
   motion,
@@ -22,6 +25,7 @@ import {
   Flashcard,
   FlashcardSet,
 } from "@/types/flashcard";
+import { useLearningProgress } from "@/hooks/useLearningProgress";
 
 // Display Modes
 import GridMode from "@/components/display-modes/GridMode";
@@ -76,6 +80,15 @@ export default function Home() {
   const [userId, setUserId] = useState<
     string | null
   >(null);
+
+  // Focus Mode & Search State
+  const [isFocusMode, setIsFocusMode] =
+    useState(false);
+  const [searchTerm, setSearchTerm] =
+    useState("");
+  const [showHardOnly, setShowHardOnly] =
+    useState(false);
+  const { progress } = useLearningProgress();
 
   // Display Mode State
   const [mode, setMode] =
@@ -553,6 +566,29 @@ export default function Home() {
     setError(null);
   };
 
+  const filteredRecentSets = useMemo(() => {
+    return recentSets.filter((set) => {
+      const matchesSearch = set.topic
+        .toLowerCase()
+        .includes(searchTerm.toLowerCase());
+
+      let matchesHard = true;
+      if (showHardOnly) {
+        matchesHard = set.cards.some(
+          (card) =>
+            progress[card.front]?.difficulty ===
+            "hard",
+        );
+      }
+      return matchesSearch && matchesHard;
+    });
+  }, [
+    recentSets,
+    searchTerm,
+    showHardOnly,
+    progress,
+  ]);
+
   return (
     <div className="max-w-4xl mx-auto space-y-8">
       {/* Header Section */}
@@ -658,101 +694,178 @@ export default function Home() {
 
       {/* Main Content Area */}
       {flashcards.length > 0 && (
-        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
-            <div className="flex items-center gap-2">
-              <div className="bg-green-100 text-green-700 p-2 rounded-full">
-                <BrainCircuit className="w-5 h-5" />
+        <div
+          className={
+            isFocusMode
+              ? "fixed inset-0 z-[100] bg-slate-900/95 backdrop-blur-xl p-4 flex flex-col items-center justify-center animate-in fade-in duration-300"
+              : "space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500"
+          }
+        >
+          <div
+            className={
+              isFocusMode
+                ? "w-full max-w-5xl relative z-10 flex flex-col h-full items-center justify-center gap-4"
+                : ""
+            }
+          >
+            <div
+              className={`flex flex-col md:flex-row justify-between items-center gap-4 bg-white dark:bg-slate-800 p-4 rounded-xl border border-gray-100 dark:border-slate-700 shadow-sm transition-all duration-300 ${
+                isFocusMode
+                  ? "absolute top-4 right-4 bg-transparent border-none shadow-none w-auto p-0"
+                  : "w-full"
+              }`}
+            >
+              <div
+                className={`flex items-center gap-2 ${
+                  isFocusMode ? "hidden" : ""
+                }`}
+              >
+                <div className="bg-green-100 text-green-700 p-2 rounded-full">
+                  <BrainCircuit className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="font-bold text-gray-900 dark:text-white">
+                    {topic}
+                  </h2>
+                  <p className="text-xs text-gray-500">
+                    {flashcards.length} cards
+                    generated
+                  </p>
+                </div>
               </div>
-              <div>
-                <h2 className="font-bold text-gray-900">
-                  {topic}
-                </h2>
-                <p className="text-xs text-gray-500">
-                  {flashcards.length} cards
-                  generated
-                </p>
+
+              <div className="flex items-center gap-3">
+                {savedSuccess && (
+                  <span className="text-green-600 text-sm font-medium flex items-center gap-1 bg-green-50 px-3 py-1 rounded-full">
+                    <CheckCircle className="w-4 h-4" />
+                    Saved to History
+                  </span>
+                )}
+                <DisplayController
+                  currentMode={mode}
+                  onModeChange={
+                    handleModeChange
+                  }
+                  onShuffle={handleShuffle}
+                  onGenerateNew={
+                    handleGenerateNew
+                  }
+                  loadingNew={loading}
+                  onToggleFocus={() =>
+                    setIsFocusMode(!isFocusMode)
+                  }
+                  isFocusMode={isFocusMode}
+                />
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              {savedSuccess && (
-                <span className="text-green-600 text-sm font-medium flex items-center gap-1 bg-green-50 px-3 py-1 rounded-full">
-                  <CheckCircle className="w-4 h-4" />
-                  Saved to History
-                </span>
+            <div
+              className={`min-h-100 w-full ${
+                isFocusMode
+                  ? "flex-1 flex items-center justify-center"
+                  : ""
+              }`}
+            >
+              {mode === "grid" && (
+                <GridMode
+                  flashcards={flashcards}
+                />
               )}
-              <DisplayController
-                currentMode={mode}
-                onModeChange={handleModeChange}
-                onShuffle={handleShuffle}
-                onGenerateNew={
-                  handleGenerateNew
-                }
-                loadingNew={loading}
-              />
+              {mode === "study" && (
+                <StudyMode
+                  flashcards={flashcards}
+                />
+              )}
+              {mode === "list" && (
+                <ListMode
+                  flashcards={flashcards}
+                />
+              )}
             </div>
-          </div>
-
-          <div className="min-h-100">
-            {mode === "grid" && (
-              <GridMode
-                flashcards={flashcards}
-              />
-            )}
-            {mode === "study" && (
-              <StudyMode
-                flashcards={flashcards}
-              />
-            )}
-            {mode === "list" && (
-              <ListMode
-                flashcards={flashcards}
-              />
-            )}
           </div>
         </div>
       )}
 
       {/* Recent History */}
-      {recentSets.length > 0 && (
-        <div className="pt-8 border-t border-gray-200">
-          <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
-            <History className="w-5 h-5" />
-            Recent Sets
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {recentSets.map((set) => (
+      {(recentSets.length > 0 ||
+        searchTerm) && (
+        <div className="pt-8 border-t border-gray-200 dark:border-slate-800">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+            <h3 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <History className="w-5 h-5" />
+              Recent Sets
+            </h3>
+
+            <div className="flex items-center gap-2 w-full md:w-auto">
+              <div className="relative flex-1 md:w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search topics..."
+                  value={searchTerm}
+                  onChange={(e) =>
+                    setSearchTerm(
+                      e.target.value,
+                    )
+                  }
+                  className="w-full pl-9 pr-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 border-none focus:ring-2 focus:ring-indigo-500 text-sm text-slate-900 dark:text-white placeholder:text-slate-500"
+                />
+              </div>
               <button
-                key={set.id}
                 onClick={() =>
-                  loadFromHistory(set)
+                  setShowHardOnly(!showHardOnly)
                 }
-                className="group text-left bg-white p-4 rounded-xl border border-gray-200 hover:border-black transition-all hover:shadow-md"
+                className={`p-2 rounded-lg border transition-all ${
+                  showHardOnly
+                    ? "bg-rose-100 border-rose-200 text-rose-600 dark:bg-rose-900/30 dark:border-rose-800 dark:text-rose-400"
+                    : "bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-slate-500"
+                }`}
+                title="Show Hard Only"
               >
-                <div className="font-semibold text-gray-900 truncate mb-1 group-hover:text-indigo-600 transition-colors">
-                  {set.topic}
-                </div>
-                <div className="flex justify-between items-center text-xs text-gray-500">
-                  <span>
-                    {set.cards?.length || 0}{" "}
-                    cards
-                  </span>
-                  <span>
-                    {new Date(
-                      set.created_at,
-                    ).toLocaleDateString()}
-                  </span>
-                </div>
-                <div className="mt-2 text-xs text-indigo-500 font-medium">
-                  Contributors:{" "}
-                  {set.contributor_ids
-                    ?.length || 0}{" "}
-                  people
-                </div>
+                <Filter className="w-4 h-4" />
               </button>
-            ))}
+            </div>
           </div>
+
+          {filteredRecentSets.length === 0 ? (
+            <div className="text-center py-12 text-slate-500">
+              No sets found matching your
+              filters.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {filteredRecentSets.map((set) => (
+                <button
+                  key={set.id}
+                  onClick={() =>
+                    loadFromHistory(set)
+                  }
+                  className="group text-left bg-white dark:bg-slate-800 p-4 rounded-xl border border-gray-200 dark:border-slate-700 hover:border-black dark:hover:border-indigo-500 transition-all hover:shadow-md"
+                >
+                  <div className="font-semibold text-gray-900 dark:text-white truncate mb-1 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                    {set.topic}
+                  </div>
+                  <div className="flex justify-between items-center text-xs text-gray-500">
+                    <span>
+                      {set.cards?.length || 0}{" "}
+                      cards
+                    </span>
+                    <span>
+                      {new Date(
+                        set.created_at,
+                      ).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <div className="mt-2 text-xs text-indigo-500 font-medium">
+                    Contributors:{" "}
+                    {set.contributor_ids
+                      ?.length || 0}{" "}
+                    people
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {/* Toast Notification */}

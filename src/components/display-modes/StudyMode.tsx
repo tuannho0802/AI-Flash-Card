@@ -8,11 +8,15 @@ import FlashcardCard from "./FlashcardCard";
 import {
   ChevronLeft,
   ChevronRight,
+  ThumbsUp,
+  Meh,
+  ThumbsDown,
 } from "lucide-react";
 import {
   motion,
   AnimatePresence,
 } from "framer-motion";
+import { useLearningProgress, Difficulty } from "@/hooks/useLearningProgress";
 
 interface StudyModeProps {
   flashcards: Flashcard[];
@@ -23,6 +27,7 @@ export default function StudyMode({
 }: StudyModeProps) {
   const [currentIndex, setCurrentIndex] =
     useState(0);
+  const { markAs } = useLearningProgress();
 
   const handleNext = useCallback(() => {
     if (currentIndex < flashcards.length - 1) {
@@ -36,6 +41,16 @@ export default function StudyMode({
     }
   }, [currentIndex]);
 
+  const handleRate = useCallback((difficulty: Difficulty) => {
+    if (currentIndex >= 0 && currentIndex < flashcards.length) {
+      markAs(flashcards[currentIndex].front, difficulty);
+      if (currentIndex < flashcards.length - 1) {
+        // Add a small delay for visual feedback if needed, but prompt said "Auto slide"
+        setCurrentIndex((prev) => prev + 1);
+      }
+    }
+  }, [currentIndex, flashcards, markAs]);
+
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (
@@ -43,6 +58,10 @@ export default function StudyMode({
     ) => {
       if (e.key === "ArrowRight") handleNext();
       if (e.key === "ArrowLeft") handlePrev();
+      // Optional: Add shortcuts for Easy/Medium/Hard (e.g., 1, 2, 3)
+      if (e.key === "1") handleRate("easy");
+      if (e.key === "2") handleRate("medium");
+      if (e.key === "3") handleRate("hard");
     };
     window.addEventListener(
       "keydown",
@@ -53,7 +72,7 @@ export default function StudyMode({
         "keydown",
         handleKeyDown,
       );
-  }, [handleNext, handlePrev]);
+  }, [handleNext, handlePrev, handleRate]);
 
   return (
     <div className="flex flex-col items-center justify-center w-full max-w-3xl mx-auto min-h-150 px-4">
@@ -113,8 +132,36 @@ export default function StudyMode({
         </AnimatePresence>
       </div>
 
-      {/* Controls */}
-      <div className="flex items-center gap-8 mt-10">
+      {/* SRS Controls */}
+      <div className="flex items-center justify-center gap-4 mt-8">
+        <button
+          onClick={() => handleRate("easy")}
+          className="flex flex-col items-center justify-center w-20 h-20 rounded-xl bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 hover:bg-emerald-600 active:scale-95 transition-all"
+          title="Easy (1)"
+        >
+          <ThumbsUp className="w-6 h-6 mb-1" />
+          <span className="text-xs font-bold">Easy</span>
+        </button>
+        <button
+          onClick={() => handleRate("medium")}
+          className="flex flex-col items-center justify-center w-20 h-20 rounded-xl bg-amber-500 text-white shadow-lg shadow-amber-500/30 hover:bg-amber-600 active:scale-95 transition-all"
+          title="Medium (2)"
+        >
+          <Meh className="w-6 h-6 mb-1" />
+          <span className="text-xs font-bold">Medium</span>
+        </button>
+        <button
+          onClick={() => handleRate("hard")}
+          className="flex flex-col items-center justify-center w-20 h-20 rounded-xl bg-rose-500 text-white shadow-lg shadow-rose-500/30 hover:bg-rose-600 active:scale-95 transition-all"
+          title="Hard (3)"
+        >
+          <ThumbsDown className="w-6 h-6 mb-1" />
+          <span className="text-xs font-bold">Hard</span>
+        </button>
+      </div>
+
+      {/* Navigation Controls */}
+      <div className="flex items-center gap-8 mt-8">
         <button
           onClick={handlePrev}
           disabled={currentIndex === 0}

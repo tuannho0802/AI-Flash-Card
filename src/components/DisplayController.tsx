@@ -7,6 +7,7 @@ import {
   LucideIcon,
   Shuffle,
   Sparkles,
+  Lamp,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -21,6 +22,8 @@ interface DisplayControllerProps {
   onShuffle: () => void;
   onGenerateNew: () => void;
   loadingNew?: boolean;
+  onToggleFocus: () => void;
+  isFocusMode: boolean;
 }
 
 export default function DisplayController({
@@ -29,6 +32,8 @@ export default function DisplayController({
   onShuffle,
   onGenerateNew,
   loadingNew = false,
+  onToggleFocus,
+  isFocusMode,
 }: DisplayControllerProps) {
   const modes: {
     id: DisplayMode;
@@ -77,6 +82,23 @@ export default function DisplayController({
     >
       {/* Primary Actions Group */}
       <div className="flex items-center gap-2 pr-4 border-r border-slate-700/50">
+        <motion.button
+          variants={itemVariants}
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+          onClick={onToggleFocus}
+          className={`p-2 rounded-lg transition-colors ${
+            isFocusMode
+              ? "bg-yellow-500/20 text-yellow-400 ring-1 ring-yellow-500/50"
+              : "text-slate-400 hover:text-white hover:bg-slate-800"
+          }`}
+          title="Toggle Focus Mode"
+        >
+          <Lamp
+            className={`w-5 h-5 ${isFocusMode ? "fill-yellow-400/20" : ""}`}
+          />
+        </motion.button>
+
         <motion.button
           variants={itemVariants}
           whileHover={{ scale: 1.05 }}
