@@ -6,7 +6,9 @@ import {
   useCallback,
   KeyboardEvent,
   useMemo,
+  Suspense,
 } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Loader2,
   Sparkles,
@@ -15,6 +17,7 @@ import {
   CheckCircle,
   Search,
   Filter,
+  X,
 } from "lucide-react";
 import {
   motion,
@@ -97,6 +100,85 @@ export default function Home() {
   // Display Mode State
   const [mode, setMode] =
     useState<DisplayMode>("grid");
+
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showAdminSidebar, setShowAdminSidebar] = useState(false);
+  const searchParams = useSearchParams();
+
+  // Check User & Role
+  useEffect(() => {
+    const checkUser = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      setUserId(user?.id || null);
+
+      if (user) {
+        // Fetch Profile Role
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", user.id)
+          .single();
+        
+        if (profile?.role === 'admin') {
+          setIsAdmin(true);
+        }
+      }
+    };
+
+    checkUser();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setUserId(session?.user?.id || null);
+        if (session?.user) {
+          supabase
+            .from("profiles")
+            .select("role")
+            .eq("id", session.user.id)
+            .single()
+            .then(({ data }) => {
+              setIsAdmin(data?.role === 'admin');
+            });
+        } else {
+          setIsAdmin(false);
+          setShowAdminSidebar(false);
+        }
+      },
+    );
+
+    return () => subscription.unsubscribe();
+  }, [supabase]);
+
+
+  const handleAdminMerge = async () => {
+    if (!confirm("Are you sure you want to merge duplicate topics? This will combine cards and contributor lists.")) return;
+    
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/merge", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        setToastMessage(data.message);
+        setTimeout(() => setToastMessage(null), 5000);
+        // Refresh local sets
+        const { data: updatedSets } = await supabase
+          .from("flashcard_sets")
+          .select("*")
+          .order("created_at", { ascending: false });
+        if (updatedSets) setRecentSets(updatedSets);
+      } else {
+        setError(data.error || "Failed to merge topics");
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Check User
   useEffect(() => {
@@ -286,7 +368,7 @@ export default function Home() {
         const query = supabase
           .from("flashcard_sets")
           .select("*")
-          .eq("normalized_topic", normalizedTopic);
+          .ilike("normalized_topic", normalizedTopic);
 
         // Removed user_id filter to allow global topic search
 
@@ -555,7 +637,7 @@ export default function Home() {
   // Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (
-      e: globalThis.KeyboardEvent,
+      e: any,
     ) => {
       // Ignore if typing in an input
       if (
@@ -575,6 +657,12 @@ export default function Home() {
         e.preventDefault();
         handleGenerateNew();
       }
+      
+      // Shortcut 'Shift + M': Toggle Admin Sidebar
+      if (isAdmin && e.shiftKey && e.key.toLowerCase() === "m") {
+        e.preventDefault();
+        setShowAdminSidebar(prev => !prev);
+      }
     };
 
     window.addEventListener(
@@ -586,7 +674,7 @@ export default function Home() {
         "keydown",
         handleKeyDown,
       );
-  }, [handleShuffle, handleGenerateNew]); // Re-binds when handlers change
+  }, [handleShuffle, handleGenerateNew, isAdmin]); // Re-binds when handlers change
 
   const generateFlashcards = useCallback(
     () => coreGenerate(false),
@@ -833,8 +921,8 @@ export default function Home() {
               Recent Sets
             </h3>
 
-            <div className="flex items-center gap-2 w-full md:w-auto">
-              <div className="relative flex-1 md:w-64">
+            <div className="flex gap-2">
+              <div className="relative w-full md:w-64">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
                   type="text"
@@ -905,6 +993,7 @@ export default function Home() {
           )}
         </div>
       )}
+
       {/* Toast Notification */}
       <AnimatePresence>
         {toastMessage && (
@@ -938,6 +1027,72 @@ export default function Home() {
               </p>
             </div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Admin Sidebar */}
+      <AnimatePresence>
+        {isAdmin && showAdminSidebar && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowAdminSidebar(false)}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
+            />
+            <motion.div
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="fixed right-0 top-0 bottom-0 w-full max-w-sm bg-slate-900 border-l border-slate-800 shadow-2xl z-[60] flex flex-col"
+            >
+              <div className="p-6 border-b border-slate-800 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <BrainCircuit className="w-6 h-6 text-indigo-500" />
+                  <h2 className="text-xl font-bold text-white">Hệ thống</h2>
+                </div>
+                <button
+                  onClick={() => setShowAdminSidebar(false)}
+                  className="p-2 hover:bg-slate-800 rounded-lg transition-colors text-slate-400"
+                >
+                  <X className="w-5 h-5" /> {/* Changed Filter to X for close icon */}
+                </button>
+              </div>
+
+              <div className="p-6 flex-1 space-y-6">
+                <div>
+                  <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">
+                    Thủ công gộp dữ liệu
+                  </h3>
+                  <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 space-y-4">
+                    <p className="text-sm text-amber-200/80 leading-relaxed">
+                      Quét và gộp các bộ thẻ có cùng chủ đề đã chuẩn hóa. Quá trình này sẽ tổng hợp thẻ và danh sách người đóng góp.
+                    </p>
+                    <button
+                      onClick={handleAdminMerge}
+                      disabled={loading}
+                      className="w-full py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-bold shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {loading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-4 h-4" />
+                      )}
+                      Dọn dẹp Database (Merge)
+                    </button>
+                  </div>
+                </div>
+
+                <div className="pt-6 border-t border-slate-800">
+                  <p className="text-xs text-slate-500 italic">
+                    Tip: Nhấn Shift + M để mở nhanh bảng điều khiển này.
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
     </div>

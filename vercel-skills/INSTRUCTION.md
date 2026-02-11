@@ -1,139 +1,84 @@
 # AI Flashcards Generator - Project Instruction & System Architecture
 
 > **Single Source of Truth** for Developers & AI Agents.
-> Last Updated: 2026-02-02
+> Last Updated: 2026-02-11
 
 ---
 
 ## 1. Project Overview & Tech Stack
 
-This project is a modern, AI-powered Flashcard Generator that helps users create study materials instantly using Google's Gemini AI. It leverages the latest web technologies for performance and responsiveness.
+This project is a modern, AI-powered Flashcard Generator that helps users create study materials instantly using Google's Gemini AI.
 
 ### **Core Technologies**
-
 - **Framework**: Next.js 15 (App Router & Server Actions)
 - **Language**: TypeScript (Strict Mode)
 - **UI Styling**: Tailwind CSS v4 (PostCSS)
-  - **Theme**: Dark Blue (#0f172a / `slate-900`)
+  - **Theme**: Dark Blue (`#0f172a / slate-900`)
   - **Effects**: Glassmorphism (`backdrop-blur`), Glow (`shadow-indigo-500/20`), Gradient Borders
-- **Animations**: Framer Motion (v12) for 3D flip effects and page transitions
-- **Icons**: Lucide React
-- **Auth**: Supabase Auth (Email/Password only)
-- **Database**: Supabase PostgreSQL
-
-### **AI Infrastructure**
-
-- **Library**: `@google/genai` (v1.39.0+)
-- **Model Strategy**:
-  - Primary: `gemini-flash-latest` (v1beta)
-  - Fallback: `gemini-1.5-flash` -> `gemini-2.0-flash`
-- **Parsing**: Manual Regex Extraction (No JSON Mode)
+- **Animations**: Framer Motion (v12) for 3D flip effects and transitions
+- **Auth & DB**: Supabase (PostgreSQL + Auth)
+- **AI Infrastructure**: `@google/genai` (v1.39.0+, `gemini-flash-latest`)
 
 ---
 
 ## 2. Core Logic & Workflows
 
-### **Authentication Flow (Email/Password)**
-
+### **Authentication & Database Sync**
 1.  **Sign Up**: `/signup` -> `supabase.auth.signUp()`
-    - Validates password length (min 6 chars) and confirmation match.
-    - Redirects to Login upon success.
+    - **Trigger Sync**: `public.profiles` is created via PostgreSQL trigger. **Do NOT** write frontend logic to create profiles.
 2.  **Login**: `/login` -> `supabase.auth.signInWithPassword()`
-    - Redirects to Home (`/`) on success.
 3.  **Guest vs. User**:
-    - **Guest**: `userId` is `null`. Can generate cards but cannot save to DB (or saving is local-only).
-    - **User**: `userId` is valid UUID. Can generate and save sets to Supabase.
-    - **Logic**: `page.tsx` checks `supabase.auth.getUser()` on mount.
+    - **Guest**: `userId` is `null`. Local-only generation.
+    - **User**: `userId` is UUID. Can save sets to Supabase.
+4.  **RBAC**: Roles (`admin`, `user`) are stored in `profiles.role`.
 
 ### **Data Flow Architecture**
-
-1.  **Client Input**: User enters topic in `page.tsx`.
-2.  **API Request**: POST `/api/generate` with `{ topic }`.
-3.  **AI Processing**:
-    - Selects Model -> Prompts for Raw JSON -> Manual Regex Parse.
-4.  **UI Render**:
-    - **Loading**: Show `Loader2` spinner.
-    - **Success**: Render `Flashcard` components in 3D Grid.
-    - **Error**: Handle 429 (Rate Limit) with countdown or 500 with Toast.
+1.  **Client Request**: POST `/api/generate` with `{ topic }` and optional `{ quantity }`.
+2.  **Normalization**: POST `/api/normalize` to ensure consistent topic keys (e.g., "Python Programming").
+3.  **AI Extraction**: Manual Regex Extraction of JSON array (v1.5/2.0-flash).
+4.  **Display**: 3D Grid render with `Framer Motion`. 429 errors handled with cooldown.
 
 ---
 
-## 3. File-by-File Functionality
+## 3. RBAC & Security Architecture
 
-### **`src/app/api/generate/route.ts` (Backend Logic)**
+### **Authorization Policy**
+- **Server-Side Guard**: All administrative or sensitive API routes (e.g., `/api/admin/merge`) **MUST** verify the user's role from the `profiles` table on the server side.
+- **Rule**: `if (profile?.role !== 'admin') return 403 Forbidden`.
 
-- **Responsibility**: AI generation.
-- **Key Logic**:
-  - **Manual Parsing**: Extracts JSON array using `[` and `]` indices to avoid `400 INVALID_ARGUMENT` from strict JSON mode.
-  - **Rate Limit Handling**: Returns `{ error: "rate_limit", retryAfter: 30 }`.
+### **Admin UI Standards**
+- **Access**: Admin tools are housed in the Admin Sidebar, toggled via `Shift + M`.
+- **Visibility**: Admins see a glowing "ADMIN" badge in the `Navbar`.
+- **Consistency**: Maintain glassmorphism and `framer-motion` for all admin panels.
 
-### **`src/app/page.tsx` (Frontend Controller)**
-
-- **Responsibility**: Main Dashboard.
-- **State**: `topic`, `flashcards`, `mode` (grid/study/list), `userId`.
-- **Logic**:
-  - **User Check**: `useEffect` calls `supabase.auth.getUser()`.
-  - **Mode Switching**: Passes state to `DisplayController`.
-
-### **`src/app/login/page.tsx` & `src/app/signup/page.tsx`**
-
-- **Responsibility**: Authentication.
-- **Styling**: Uses `bg-slate-900` global background with `slate-800/50` cards.
-- **Validation**: Frontend checks for password matching/length before API call.
+### **Schema Reference: `profiles` table**
+- `id`: UUID (Primary Key, matches `auth.users.id`)
+- `role`: TEXT (Default: 'user', Values: 'admin', 'user')
+- `full_name`: TEXT (Nullable)
+- `email`: TEXT (Nullable)
 
 ---
 
 ## 4. Standard Operating Procedures (SOP)
 
 ### **Pre-Correction Checklist**
-
-1.  **Analyze Async/Await**: Ensure every `await` is inside an `async` function.
-2.  **Verify Imports**: `@google/genai` for AI, `lucide-react` for icons.
+1.  **Normalization**: Ensure all topic-based queries use `.ilike()` for case-insensitivity.
+2.  **Strict Typing**: Interfaces (`Flashcard`, `FlashcardSet`, `Profile`) must be strictly followed.
 
 ### **Post-Correction Checklist**
-
-1.  **Mandatory Lint**: Run `npx tsc --noEmit` immediately after **ANY** code change.
-2.  **Verify UI**: Check against Dark Blue Theme (`bg-slate-900`).
-
-### **Model Selection Rules**
-
-1.  **Primary**: `gemini-flash-latest` (on `v1beta`).
-2.  **Fallback**: `gemini-1.5-flash`.
+1.  **Mandatory Lint**: Run `npx tsc --noEmit` after **ANY** change.
+2.  **Admin Check**: Ensure no sensitive tools are visible to `role: 'user'`.
 
 ---
 
 ## 5. Code Quality & Best Practices
 
 ### **Tailwind CSS v4**
-
 - **Colors**: Use `slate-900` for backgrounds, `indigo-500` for primary actions.
-- **Gradients**: Use `bg-linear-to-*` (v4 syntax).
-- **Spacing**: Use `min-h-100` instead of `min-h-[400px]`.
+- **Syntax**: `bg-linear-to-*` for gradients, `min-h-100` for fixed heights.
 
-### **Next.js & React**
-
-- **Client Components**: Mark with `"use client"` at the very top.
-- **Images**: Use `next/image`.
-- **JSX**: Escape apostrophes (`&apos;`).
-
-### **TypeScript**
-
-- **No Any**: Use `unknown` with narrowing or defined Interfaces (`Flashcard`, `FlashcardSet`).
-- **Cleanliness**: Remove unused variables (e.g., `router` if not navigating).
-- **Variable Declarations**:
-  - Always use `const` for variables that are not reassigned.
-  - Remember: Arrays and Objects mutated via methods (push, pop) are NOT reassigned, so they should be `const`.
-  - **Query Builders**: Supabase query chains that are not conditionally reassigned (e.g., `let query = ...; if(x) query = query.eq(...)`) must be declared as `const`. If you remove the conditional logic, remember to change `let` back to `const`.
-
-### **React Hooks**
-
-- **Effect Dependencies**: When using a function in a `useEffect` dependency array, ALWAYS wrap that function definition in `useCallback` to prevent infinite loops or unnecessary re-renders.
-  - *Example*: `useEffect(..., [handleGenerateNew])` requires `const handleGenerateNew = useCallback(...)`.
-- **Callback Dependencies**: Ensure all functions used inside `useCallback` are included in the dependency array. If the used function is defined within the component, it must also be wrapped in `useCallback` to maintain referential equality.
-  - *Example*: `useCallback(() => shuffleArray(prev), [shuffleArray])`.
-
-### **LocalStorage & State Persistence**
-
-- **Custom Hooks**: Encapsulate LocalStorage logic in custom hooks (e.g., `useLearningProgress`) for reusability.
-- **Hydration Safety**: Always verify component is mounted (`useEffect` or `isMounted` state) before rendering content derived from LocalStorage to avoid server/client mismatch errors.
-- **Error Handling**: Wrap `JSON.parse` and `localStorage.setItem` in `try-catch` blocks to prevent crashes from corrupted data or quota limits.
+### **React & TypeScript**
+- **Hooks**: Wrap effect dependencies in `useCallback` to prevent infinite loops.
+- **Hydration**: Verify mount state before rendering LocalStorage-derived content.
+- **Variables**: Use `const` unless reassignment is strictly necessary.
+- **Error UI**: Never show raw JSON errors. Use friendly banners or toasts.

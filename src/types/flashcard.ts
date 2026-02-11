@@ -21,4 +21,5 @@ export interface Profile {
   avatar_url: string | null;
   website: string | null;
   email: string | null;
+  role: string | null;
 }

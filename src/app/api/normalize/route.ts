@@ -19,12 +19,21 @@ export async function POST(req: Request) {
         const genAI = new GoogleGenAI({ apiKey, apiVersion: 'v1beta' });
 
         const prompt = `Normalize the following study topic for a database key.
-        Rules:
+
+        Strict Rules:
         1. Language: English.
-        2. Format: Title Case (e.g., "Python Basics").
-        3. Length: 2-4 words.
-        4. Be concise but descriptive.
-        5. Return ONLY the normalized string, no extra text, no quotes.
+        2. Format: Title Case (e.g., "Python Programming").
+        3. Programming Languages: MUST follow the format "[Language Name] Programming".
+           - Examples: "học python", "python cơ bản", "coding in py" -> "Python Programming".
+           - "javascript basics", "js tutorials" -> "JavaScript Programming".
+        4. Common Mappings:
+           - JS/Javascript -> JavaScript Programming
+           - Py/Python -> Python Programming
+           - TS/Typescript -> TypeScript Programming
+           - React -> React Framework
+        5. Content Focus: Ignore filler words like "học", "cơ bản", "advanced", "tutorials", "nâng cao". Focus on the core subject.
+        6. Length: 2-4 words.
+        7. Return ONLY the normalized string, no extra text, no quotes.
 
         Topic: "${topic}"`;
 
