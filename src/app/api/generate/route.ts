@@ -1,13 +1,10 @@
 import { GoogleGenAI } from "@google/genai";
-import { createClient } from "@/utils/supabase/server";
 import { Flashcard } from "@/types/flashcard";
+
+export const runtime = "edge"; // Streaming works best in Edge runtime
 
 export async function POST(req: Request) {
     try {
-        const supabase = await createClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        const userId = user?.id || null;
-
         const apiKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY;
 
         if (!apiKey) {
@@ -16,7 +13,7 @@ export async function POST(req: Request) {
         }
 
         const body = await req.json();
-        const { topic, count = 5, skipDb = false } = body;
+        const { topic, count = 5 } = body;
 
         if (!topic) {
             return Response.json({ error: "Topic is required" }, { status: 400 });
@@ -45,17 +42,16 @@ export async function POST(req: Request) {
         
         Do not include markdown headers, backticks, or any other text.`;
 
-        console.log(`Generate API: Generating & Normalizing for: ${topic}`);
+        console.log(`Generate API: Streaming Conversion for: ${topic}`);
 
-        let text = "";
-        let usedModel = "";
         let lastError: any = null;
 
         for (const modelName of models) {
             try {
-                console.log(`Generate API: Trying model ${modelName} via v1beta...`);
+                console.log(`Generate API: Trying Streaming with model ${modelName} via v1beta...`);
 
-                const result = await genAI.models.generateContent({
+                // Initial stream setup
+                const result = await genAI.models.generateContentStream({
                     model: modelName,
                     contents: [{
                         // @ts-ignore
@@ -64,22 +60,40 @@ export async function POST(req: Request) {
                     }],
                 });
 
-                // In @google/genai (GA), we use result.text or response.text()
-                if (typeof result.text === 'string') {
-                    text = result.text;
-                } else if ((result as any).response?.text) {
-                    text = (result as any).response.text();
-                }
+                // If we get here, the request was accepted (pre-stream start success)
+                console.log(`Generate API: Model ${modelName} stream started!`);
 
-                if (text) {
-                    usedModel = modelName;
-                    console.log(`Generate API: Model ${modelName} succeeded!`);
-                    break;
-                }
+                const encoder = new TextEncoder();
+                const stream = new ReadableStream({
+                    async start(controller) {
+                        try {
+                            // In @google/genai (GA SDK), result is directly an AsyncGenerator
+                            for await (const chunk of result) {
+                                // chunk is EnhancedGenerateContentResponse
+                                const chunkText = chunk.text;
+                                if (chunkText) {
+                                    controller.enqueue(encoder.encode(chunkText));
+                                }
+                            }
+                            controller.close();
+                        } catch (err: any) {
+                            console.error(`Generate API: Error during stream from ${modelName}:`, err);
+                            controller.error(err);
+                        }
+                    }
+                });
+
+                return new Response(stream, {
+                    headers: {
+                        "Content-Type": "text/plain; charset=utf-8",
+                        "Transfer-Encoding": "chunked",
+                    },
+                });
+
             } catch (err: any) {
                 lastError = err;
                 const status = err.status || err.code;
-                console.warn(`Generate API: Model ${modelName} failed with status ${status}`);
+                console.warn(`Generate API: Model ${modelName} failed to start stream (Status: ${status})`);
 
                 // Fallback on 429 (Rate limit), 503 (Overload), or 404 (Not Found)
                 if (status === 429 || status === 503 || status === 404 || err.message?.includes("429") || err.message?.includes("Quota")) {
@@ -92,98 +106,7 @@ export async function POST(req: Request) {
             }
         }
 
-        if (!text) {
-            throw lastError || new Error("All models failed to return a response.");
-        }
-
-        // Robust JSON Parsing
-        let parsedData;
-        try {
-            const cleanText = text.replace(/```json|```/g, "").trim();
-            const jsonStart = cleanText.indexOf('{');
-            const jsonEnd = cleanText.lastIndexOf('}') + 1;
-            parsedData = JSON.parse(cleanText.slice(jsonStart, jsonEnd));
-        } catch (e) {
-            console.error(`Generate API: AI Response Parsing Failed (Model: ${usedModel}):`, text);
-            throw new Error(`Failed to parse AI response from ${usedModel}.`);
-        }
-
-        const { normalized_topic, flashcards } = parsedData;
-
-        if (!normalized_topic || !Array.isArray(flashcards)) {
-            throw new Error("Invalid structure from AI response.");
-        }
-
-        if (skipDb) {
-            return Response.json({ normalized_topic, flashcards });
-        }
-
-        // Database Persistence
-        console.log(`Generate API: Checking for existing set '${normalized_topic}'...`);
-
-        const { data: existingSet } = await supabase
-            .from("flashcard_sets")
-            .select("*")
-            .ilike("normalized_topic", normalized_topic)
-            .limit(1)
-            .maybeSingle();
-
-        let finalResultId = null;
-
-        if (existingSet) {
-            console.log(`Generate API: Merging into existing set ID: ${existingSet.id}`);
-
-            const cardsMap = new Map<string, Flashcard>();
-            (existingSet.cards || []).forEach((c: Flashcard) => {
-                cardsMap.set(c.front.trim().toLowerCase(), c);
-            });
-            flashcards.forEach((c: Flashcard) => {
-                const key = c.front.trim().toLowerCase();
-                if (!cardsMap.has(key)) cardsMap.set(key, c);
-            });
-            const mergedCards = Array.from(cardsMap.values());
-
-            const contributors = new Set(existingSet.contributor_ids || []);
-            if (userId) contributors.add(userId);
-
-            const aliases = new Set(existingSet.aliases || []);
-            aliases.add(topic.trim());
-
-            const { error: updateError } = await supabase
-                .from("flashcard_sets")
-                .update({
-                    cards: mergedCards,
-                    contributor_ids: Array.from(contributors),
-                    aliases: Array.from(aliases)
-                })
-                .eq("id", existingSet.id);
-
-            if (updateError) console.error("Update error:", updateError);
-            finalResultId = existingSet.id;
-        } else {
-            console.log(`Generate API: Creating new set for: ${normalized_topic}`);
-
-            const { data: newSet, error: insertError } = await supabase
-                .from("flashcard_sets")
-                .insert([{
-                    topic: topic,
-                    normalized_topic: normalized_topic,
-                    cards: flashcards,
-                    contributor_ids: userId ? [userId] : [],
-                    aliases: [topic.trim()]
-                }])
-                .select("id")
-                .single();
-
-            if (insertError) console.error("Insert error:", insertError);
-            if (newSet) finalResultId = newSet.id;
-        }
-
-        return Response.json({
-            normalized_topic,
-            flashcards,
-            id: finalResultId
-        });
+        throw lastError || new Error("All models failed to initiate streaming.");
 
     } catch (error: any) {
         console.error("Generate API: Fatal Error:", error);
