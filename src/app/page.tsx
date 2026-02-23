@@ -42,6 +42,18 @@ import DisplayController, {
 } from "@/components/DisplayController";
 
 export default function Home() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="animate-spin text-indigo-400 w-12 h-12" />
+      </div>
+    }>
+      <FlashcardsApp />
+    </Suspense>
+  );
+}
+
+function FlashcardsApp() {
   const [supabase] = useState(() => createClient());
   const [topic, setTopic] = useState("");
   const [flashcards, setFlashcards] = useState<Flashcard[]>([]);
