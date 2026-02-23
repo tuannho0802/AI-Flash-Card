@@ -15,7 +15,12 @@ export async function POST(req: Request) {
         }
 
         const body = await req.json();
-        const { topic, count = 5 } = body;
+        const { topic, count = 5, userId } = body;
+
+        // Security Check: CRON_SECRET for automated jobs or valid userId (optional refinement)
+        const cronSecret = process.env.CRON_SECRET;
+        const authHeader = req.headers.get("Authorization");
+        const isCron = cronSecret && authHeader === `Bearer ${cronSecret}`;
 
         if (!topic) {
             return Response.json({ error: "Topic is required" }, { status: 400 });

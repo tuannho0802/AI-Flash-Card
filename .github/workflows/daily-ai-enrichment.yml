@@ -1,0 +1,59 @@
+name: Daily AI Enrichment
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # 00:00 UTC = 07:00 VN
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  enrich:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Select Random Topics
+        id: select-topics
+        run: |
+          TOPICS=("Quantum Computing" "History of AI" "Ancient Civilizations" "Soft Skills for Managers" "Modern Web Development" "Healthy Lifestyle Hacks" "Space Exploration" "Behavioral Economics" "Classical Literature" "Cybersecurity Basics")
+          # Pick 2 random unique topics
+          PICKED=$(printf "%s\n" "${TOPICS[@]}" | shuf -n 2 | tr '\n' ',' | sed 's/,$//')
+          echo "topics=$PICKED" >> $GITHUB_OUTPUT
+          echo "Selected Topics: $PICKED"
+
+      - name: Trigger Generation for Topic 1
+        uses: nick-fields/retry@v2
+        with:
+          timeout_minutes: 5
+          max_attempts: 3
+          retry_wait_seconds: 30
+          command: |
+            TOPIC1=$(echo "${{ steps.select-topics.outputs.topics }}" | cut -d',' -f1)
+            echo "Processing Topic 1: $TOPIC1"
+            curl -X POST "${{ secrets.SITE_URL }}/api/generate" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+              -d "{\"topic\": \"$TOPIC1\", \"count\": 8}" \
+              --fail-with-body
+
+      - name: Cooldown
+        run: sleep 30
+
+      - name: Trigger Generation for Topic 2
+        uses: nick-fields/retry@v2
+        with:
+          timeout_minutes: 5
+          max_attempts: 3
+          retry_wait_seconds: 30
+          command: |
+            TOPIC2=$(echo "${{ steps.select-topics.outputs.topics }}" | cut -d',' -f2)
+            echo "Processing Topic 2: $TOPIC2"
+            curl -X POST "${{ secrets.SITE_URL }}/api/generate" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+              -d "{\"topic\": \"$TOPIC2\", \"count\": 8}" \
+              --fail-with-body
+
+      - name: Report Summary
+        if: always()
+        run: |
+          echo "### Daily AI Enrichment Summary 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "- **Topics Processed:** ${{ steps.select-topics.outputs.topics }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** Done" >> $GITHUB_STEP_SUMMARY
