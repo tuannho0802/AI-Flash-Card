@@ -55,9 +55,38 @@ export async function POST(req: Request) {
 
         for (const modelName of models) {
             try {
+                if (isCron) {
+                    // NON-STREAMING FLOW for Cron to ensure persistence
+                    console.log(`Generate API: Cron detected. Using non-streaming flow with model ${modelName}.`);
+                    const result = await genAI.models.generateContent({
+                        model: modelName,
+                        contents: [{
+                            // @ts-ignore
+                            role: 'user',
+                            parts: [{ text: prompt }]
+                        }],
+                    });
+
+                    // The result usually contains a 'text' property or requires response.text() depending on the SDK method used
+                    // For genAI.models.generateContent (v1beta direct), it usually returns a GenerateContentResponse
+                    const responseText = (result as any).text || (result as any).response?.text?.() || "";
+
+                    const data = JSON.parse(responseText);
+                    if (data.flashcards && data.normalized_topic) {
+                        // AWAIT the save to ensure it completes before connection closes
+                        await saveToDatabase(data, userId as string | undefined, topic as string);
+                        return Response.json({
+                            success: true,
+                            topic: data.normalized_topic,
+                            count: data.flashcards.length
+                        });
+                    }
+                    throw new Error("Invalid AI response structure");
+                }
+
+                // STREAMING FLOW for regular users
                 console.log(`Generate API: Trying Streaming with model ${modelName} via v1beta...`);
 
-                // Initial stream setup
                 const result = await genAI.models.generateContentStream({
                     model: modelName,
                     contents: [{
@@ -67,7 +96,6 @@ export async function POST(req: Request) {
                     }],
                 });
 
-                // If we get here, the request was accepted (pre-stream start success)
                 console.log(`Generate API: Model ${modelName} stream started!`);
 
                 const encoder = new TextEncoder();
@@ -75,7 +103,6 @@ export async function POST(req: Request) {
                     async start(controller) {
                         let fullResponse = "";
                         try {
-                            // In @google/genai (GA SDK), generateContentStream result is an AsyncGenerator
                             for await (const chunk of result) {
                                 const chunkText = chunk.text;
                                 if (chunkText) {
@@ -85,12 +112,12 @@ export async function POST(req: Request) {
                             }
                             controller.close();
 
-                            // Non-blocking Background Persistence
+                            // Non-blocking Background Persistence for UI users
                             (async () => {
                                 try {
                                     const data = JSON.parse(fullResponse);
                                     if (data.flashcards && data.normalized_topic) {
-                                        await saveToDatabase(data, body.userId, topic);
+                                        await saveToDatabase(data, userId, topic);
                                     }
                                 } catch (err) {
                                     console.error("Generate API: Background Save - Parsing/Saving failed:", err);
@@ -110,7 +137,7 @@ export async function POST(req: Request) {
                         "Cache-Control": "no-cache, no-transform",
                         "X-Accel-Buffering": "no",
                         "X-Content-Type-Options": "nosniff",
-                        "x-no-compression": "1", // Hint for some proxies
+                        "x-no-compression": "1",
                     },
                 });
 
@@ -161,7 +188,10 @@ async function saveToDatabase(data: any, userId: string | undefined, originalTop
             .select("*")
             .or(`normalized_topic.ilike.${normLower},aliases.cs.{"${originalTopic}"},topic.ilike.${originalTopic}`);
 
-        if (searchError) throw searchError;
+        if (searchError) {
+            console.error("Generate API: Search query failed:", searchError);
+            throw searchError;
+        }
 
         if (existingSets && existingSets.length > 0) {
             // Smart Merge Logic
@@ -197,7 +227,10 @@ async function saveToDatabase(data: any, userId: string | undefined, originalTop
                 })
                 .eq("id", primarySet.id);
 
-            if (updateError) throw updateError;
+            if (updateError) {
+                console.error("Generate API: Update failed:", updateError);
+                throw updateError;
+            }
             console.log(`Generate API: Background Save - Successfully merged into ID: ${primarySet.id}`);
         } else {
             // New entry
@@ -213,10 +246,14 @@ async function saveToDatabase(data: any, userId: string | undefined, originalTop
                     aliases: [originalTopic]
                 });
 
-            if (insertError) throw insertError;
+            if (insertError) {
+                console.error("Generate API: Insert failed:", insertError);
+                throw insertError;
+            }
             console.log(`Generate API: Background Save - Successfully created new set.`);
         }
     } catch (err: any) {
-        console.error("Generate API: Background Save - DB Operation Failed:", err.message);
+        console.error("Generate API: saveToDatabase Error:", err.message);
+        throw err; // Re-throw to allow parent to handle
     }
 }
