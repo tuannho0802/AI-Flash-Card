@@ -9,6 +9,7 @@ import {
   Suspense,
   useRef,
 } from "react";
+import parse from "partial-json-parser";
 import { useSearchParams } from "next/navigation";
 import {
   Loader2,
@@ -153,47 +154,99 @@ export default function Home() {
       }
 
       try {
-        const res = await fetchWithRetry(
-          "/api/generate",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ topic: topic.trim(), count: quantity, userId }),
-          },
-          5,
-          (seconds, attempt) => {
+        console.log(`Starting Streaming Generation for: ${topic}`);
+
+        const response = await fetch("/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ topic: topic.trim(), count: quantity, userId }),
+        });
+
+        if (!response.ok) {
+          if (response.status === 429) {
             setRetryMessage(`Hệ thống đang bận (429), đang tự động nghỉ ngơi 30s để AI 'hạ nhiệt'...`);
             setRetryCountdown(30);
-            setRetryAttempt(attempt);
-          },
-          30000
-        );
-
-        setRetryMessage(null);
-        setRetryCountdown(null);
-
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => ({}));
-          if (res.status === 429) {
-            setCountdown(30);
-            throw new Error("Hệ thống quá tải. Vui lòng đợi 30 giây.");
+            throw new Error("Rate limit exceeded");
           }
+          const errorData = await response.json().catch(() => ({}));
           throw new Error(errorData.error || "Generation failed.");
         }
 
-        const data = await res.json();
-        if (data.flashcards && Array.isArray(data.flashcards)) {
-          setTopic(data.normalized_topic);
-          setFlashcards(data.flashcards);
-          sessionCache.current.set(cleanedTopic, {
-            normalized_topic: data.normalized_topic,
-            flashcards: data.flashcards
-          });
-          setSavedSuccess(true);
-          fetchRecentSets();
-          setToastMessage(`Đã chuẩn hóa thành "${data.normalized_topic}"!`);
-          setTimeout(() => setToastMessage(null), 5000);
+        if (!response.body) throw new Error("No response body");
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let accumulatedText = "";
+        
+        // Clear flashcards for new generation to see streaming effect
+        setFlashcards([]);
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          console.log('Chunk received:', chunk);
+          accumulatedText += chunk;
+
+          try {
+            const partialData = parse(accumulatedText);
+            
+            if (partialData.normalized_topic && partialData.normalized_topic !== topic) {
+              setTopic(partialData.normalized_topic);
+            }
+
+            if (partialData.flashcards && Array.isArray(partialData.flashcards)) {
+              // Filter out incomplete cards (where front or back might be missing/empty while AI is typing)
+              const completedCards = partialData.flashcards.filter((card: any) => 
+                card && 
+                typeof card.front === 'string' && card.front.trim().length > 0 &&
+                typeof card.back === 'string' && card.back.trim().length > 0
+              );
+
+              if (completedCards.length > 0) {
+                console.log('Current Parsed Cards (Ready):', completedCards.length);
+                
+                setFlashcards(prev => {
+                  // Only update if we have more completed cards or if the last completed card was updated
+                  const hasMore = completedCards.length > prev.length;
+                  const lastChanged = prev.length > 0 && 
+                                    JSON.stringify(completedCards[completedCards.length - 1]) !== JSON.stringify(prev[prev.length - 1]);
+                  
+                  if (hasMore || lastChanged) {
+                    return [...completedCards];
+                  }
+                  return prev;
+                });
+
+                // Force React to yield and render the update
+                await new Promise(r => setTimeout(r, 5));
+              }
+            }
+          } catch (e) {
+            // Background parsing error is expected for very early chunks
+          }
         }
+
+        // Final cleanup and cache update
+        try {
+          const finalData = JSON.parse(accumulatedText);
+          if (finalData.flashcards) {
+            setTopic(finalData.normalized_topic);
+            setFlashcards(finalData.flashcards);
+            sessionCache.current.set(cleanedTopic, {
+              normalized_topic: finalData.normalized_topic,
+              flashcards: finalData.flashcards
+            });
+            setSavedSuccess(true);
+            fetchRecentSets();
+            setToastMessage(`Hoàn tất bộ thẻ "${finalData.normalized_topic}"!`);
+            setTimeout(() => setToastMessage(null), 5000);
+          }
+        } catch (e) {
+          console.error("Stream final data parse failed:", e);
+        }
+
       } catch (err: any) {
         console.error("Generate Error:", err);
         setError(err.message || "Something went wrong.");

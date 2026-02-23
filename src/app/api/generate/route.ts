@@ -1,7 +1,9 @@
 import { GoogleGenAI } from "@google/genai";
 import { Flashcard } from "@/types/flashcard";
+import { createClient } from "@/utils/supabase/server";
 
-export const runtime = "edge"; // Streaming works best in Edge runtime
+export const runtime = "edge";
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
     try {
@@ -66,16 +68,30 @@ export async function POST(req: Request) {
                 const encoder = new TextEncoder();
                 const stream = new ReadableStream({
                     async start(controller) {
+                        let fullResponse = "";
                         try {
-                            // In @google/genai (GA SDK), result is directly an AsyncGenerator
+                            // In @google/genai (GA SDK), generateContentStream result is an AsyncGenerator
                             for await (const chunk of result) {
-                                // chunk is EnhancedGenerateContentResponse
                                 const chunkText = chunk.text;
                                 if (chunkText) {
+                                    fullResponse += chunkText;
                                     controller.enqueue(encoder.encode(chunkText));
                                 }
                             }
                             controller.close();
+
+                            // Non-blocking Background Persistence
+                            (async () => {
+                                try {
+                                    const data = JSON.parse(fullResponse);
+                                    if (data.flashcards && data.normalized_topic) {
+                                        await saveToDatabase(data, body.userId, topic);
+                                    }
+                                } catch (err) {
+                                    console.error("Generate API: Background Save - Parsing/Saving failed:", err);
+                                }
+                            })();
+
                         } catch (err: any) {
                             console.error(`Generate API: Error during stream from ${modelName}:`, err);
                             controller.error(err);
@@ -85,8 +101,11 @@ export async function POST(req: Request) {
 
                 return new Response(stream, {
                     headers: {
-                        "Content-Type": "text/plain; charset=utf-8",
-                        "Transfer-Encoding": "chunked",
+                        "Content-Type": "text/event-stream; charset=utf-8",
+                        "Cache-Control": "no-cache, no-transform",
+                        "X-Accel-Buffering": "no",
+                        "X-Content-Type-Options": "nosniff",
+                        "x-no-compression": "1", // Hint for some proxies
                     },
                 });
 
@@ -120,5 +139,79 @@ export async function POST(req: Request) {
         }
 
         return Response.json(response, { status });
+    }
+}
+
+async function saveToDatabase(data: any, userId: string | undefined, originalTopic: string) {
+    try {
+        const supabase = await createClient();
+        const { normalized_topic, flashcards } = data;
+        const normLower = normalized_topic.toLowerCase().trim();
+
+        console.log(`Generate API: Background Save - Processing "${normalized_topic}"...`);
+
+        // 1. Search for existing set by normalized_topic OR original topic in aliases
+        const { data: existingSets, error: searchError } = await supabase
+            .from("flashcard_sets")
+            .select("*")
+            .or(`normalized_topic.ilike.${normLower},aliases.cs.{"${originalTopic}"},topic.ilike.${originalTopic}`);
+
+        if (searchError) throw searchError;
+
+        if (existingSets && existingSets.length > 0) {
+            // Smart Merge Logic
+            const primarySet = existingSets[0];
+            console.log(`Generate API: Background Save - Found existing set (ID: ${primarySet.id}). Merging...`);
+
+            // Deduplicate cards by front content (case-insensitive)
+            const cardsMap = new Map();
+            (primarySet.cards || []).forEach((c: Flashcard) => cardsMap.set(c.front.toLowerCase().trim(), c));
+            (flashcards || []).forEach((c: Flashcard) => {
+                const key = c.front.toLowerCase().trim();
+                if (!cardsMap.has(key)) cardsMap.set(key, c);
+            });
+            const mergedCards = Array.from(cardsMap.values());
+
+            // Merge contributor IDs
+            const contributors = new Set(primarySet.contributor_ids || []);
+            if (userId) contributors.add(userId);
+            if (primarySet.user_id) contributors.add(primarySet.user_id);
+
+            // Merge aliases
+            const aliases = new Set(primarySet.aliases || []);
+            aliases.add(originalTopic);
+            if (primarySet.topic) aliases.add(primarySet.topic);
+
+            const { error: updateError } = await supabase
+                .from("flashcard_sets")
+                .update({
+                    cards: mergedCards,
+                    contributor_ids: Array.from(contributors).filter(Boolean),
+                    aliases: Array.from(aliases).filter(Boolean),
+                    updated_at: new Date().toISOString()
+                })
+                .eq("id", primarySet.id);
+
+            if (updateError) throw updateError;
+            console.log(`Generate API: Background Save - Successfully merged into ID: ${primarySet.id}`);
+        } else {
+            // New entry
+            console.log(`Generate API: Background Save - Creating new set for "${normalized_topic}".`);
+            const { error: insertError } = await supabase
+                .from("flashcard_sets")
+                .insert({
+                    topic: originalTopic,
+                    normalized_topic: normalized_topic,
+                    cards: flashcards,
+                    user_id: userId || null,
+                    contributor_ids: userId ? [userId] : [],
+                    aliases: [originalTopic]
+                });
+
+            if (insertError) throw insertError;
+            console.log(`Generate API: Background Save - Successfully created new set.`);
+        }
+    } catch (err: any) {
+        console.error("Generate API: Background Save - DB Operation Failed:", err.message);
     }
 }
