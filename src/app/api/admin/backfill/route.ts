@@ -32,7 +32,18 @@ async function HandleBackfill(req: Request) {
             authHeader === `Bearer ${cronSecret}` || searchSecret === cronSecret
         );
 
+        // Also allow: admin users authenticated via Supabase session
+        let isAdminSession = false;
         if (!isAuthorized) {
+            const supabaseCheck = await createClient();
+            const { data: { user } } = await supabaseCheck.auth.getUser();
+            if (user) {
+                const { data: prof } = await supabaseCheck.from("profiles").select("role").eq("id", user.id).single();
+                isAdminSession = prof?.role === "admin";
+            }
+        }
+
+        if (!isAuthorized && !isAdminSession) {
             return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
 
