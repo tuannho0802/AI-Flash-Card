@@ -15,7 +15,7 @@ export async function POST(req: Request) {
         }
 
         const body = await req.json();
-        const { topic, count = 5, userId } = body;
+        const { topic, count = 5, userId, category: userCategory } = body;
 
         // Security Check: CRON_SECRET for automated jobs or valid userId (optional refinement)
         const cronSecret = process.env.CRON_SECRET;
@@ -29,6 +29,10 @@ export async function POST(req: Request) {
         const genAI = new GoogleGenAI({ apiKey, apiVersion: 'v1beta' });
         const models = ['gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemma-3-27b-it'];
 
+        const categoryInstruction = userCategory
+            ? `- Use "${userCategory}" as the category (user-provided).`
+            : `- Assign a 1-2 word Vietnamese category (e.g., Công nghệ, Y tế, Lịch sử, Ngôn ngữ, Khoa học, Kinh doanh, Toán học).`;
+
         const prompt = `Your task is a two-step educational process for the topic: "${topic}".
         
         Step 1: Normalize the topic name into a standard database key.
@@ -37,13 +41,17 @@ export async function POST(req: Request) {
         - Subject Mapping: JS/Javascript -> "JavaScript Programming", Py/Python -> "Python Programming", React -> "React Framework".
         - Focus: Core subject only, ignore filler words like "học", "cơ bản", "basics".
 
-        Step 2: Generate ${count} high-quality educational flashcards for this topic.
+        Step 2: Categorize this topic.
+        ${categoryInstruction}
+
+        Step 3: Generate ${count} high-quality educational flashcards for this topic.
         - Language: Vietnamese.
         - Structure: Question/Term on the front, Answer/Definition on the back.
 
         Return ONLY a raw JSON object with this exact structure:
         {
           "normalized_topic": "Consolidated Title",
+          "category": "Category Label",
           "flashcards": [{"front": "...", "back": "..."}]
         }
         
@@ -73,8 +81,9 @@ export async function POST(req: Request) {
 
                     const data = JSON.parse(responseText);
                     if (data.flashcards && data.normalized_topic) {
+                        const finalCategory = userCategory || data.category || null;
                         // AWAIT the save to ensure it completes before connection closes
-                        await saveToDatabase(data, userId as string | undefined, topic as string);
+                        await saveToDatabase(data, userId as string | undefined, topic as string, finalCategory);
                         return Response.json({
                             success: true,
                             topic: data.normalized_topic,
@@ -117,7 +126,8 @@ export async function POST(req: Request) {
                                 try {
                                     const data = JSON.parse(fullResponse);
                                     if (data.flashcards && data.normalized_topic) {
-                                        await saveToDatabase(data, userId, topic);
+                                        const finalCategory = userCategory || data.category || null;
+                                        await saveToDatabase(data, userId, topic, finalCategory);
                                     }
                                 } catch (err) {
                                     console.error("Generate API: Background Save - Parsing/Saving failed:", err);
@@ -174,7 +184,7 @@ export async function POST(req: Request) {
     }
 }
 
-async function saveToDatabase(data: any, userId: string | undefined, originalTopic: string) {
+async function saveToDatabase(data: any, userId: string | undefined, originalTopic: string, category?: string | null) {
     try {
         const supabase = await createClient();
         const { normalized_topic, flashcards } = data;
@@ -217,14 +227,18 @@ async function saveToDatabase(data: any, userId: string | undefined, originalTop
             aliases.add(originalTopic);
             if (primarySet.topic) aliases.add(primarySet.topic);
 
+            const updatePayload: Record<string, any> = {
+                cards: mergedCards,
+                contributor_ids: Array.from(contributors).filter(Boolean),
+                aliases: Array.from(aliases).filter(Boolean),
+                updated_at: new Date().toISOString()
+            };
+            // Only overwrite category if a new one is provided
+            if (category) updatePayload.category = category;
+
             const { error: updateError } = await supabase
                 .from("flashcard_sets")
-                .update({
-                    cards: mergedCards,
-                    contributor_ids: Array.from(contributors).filter(Boolean),
-                    aliases: Array.from(aliases).filter(Boolean),
-                    updated_at: new Date().toISOString()
-                })
+                .update(updatePayload)
                 .eq("id", primarySet.id);
 
             if (updateError) {
@@ -243,7 +257,8 @@ async function saveToDatabase(data: any, userId: string | undefined, originalTop
                     cards: flashcards,
                     user_id: userId || null,
                     contributor_ids: userId ? [userId] : [],
-                    aliases: [originalTopic]
+                    aliases: [originalTopic],
+                    category: category || null
                 });
 
             if (insertError) {

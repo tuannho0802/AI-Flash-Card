@@ -12,6 +12,7 @@ export interface FlashcardSet {
   user_id?: string | null;
   contributor_ids?: string[] | null;
   aliases?: string[] | null;
+  category?: string | null;
 }
 
 export interface Profile {

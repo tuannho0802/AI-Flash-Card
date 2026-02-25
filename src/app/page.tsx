@@ -20,6 +20,7 @@ import {
   Search,
   Filter,
   X,
+  Edit2,
 } from "lucide-react";
 import {
   motion,
@@ -63,6 +64,7 @@ function FlashcardsApp() {
   const [recentSets, setRecentSets] = useState<FlashcardSet[]>([]);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [quantity, setQuantity] = useState(5);
+  const [category, setCategory] = useState("");
   const [userId, setUserId] = useState<string | null>(null);
   const [retryMessage, setRetryMessage] = useState<string | null>(null);
   const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
@@ -116,8 +118,20 @@ function FlashcardsApp() {
   }, []);
 
   const fetchRecentSets = useCallback(async () => {
-    let query = supabase.from("flashcard_sets").select("*").order("created_at", { ascending: false }).limit(8);
-    if (userId) query = query.contains("contributor_ids", [userId]);
+    // Fetch sets belonging to the logged-in user OR sets that are public (user_id IS NULL)
+    let query = supabase
+      .from("flashcard_sets")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(12);
+
+    if (userId) {
+      // Show user's own sets + public sets
+      query = query.or(`user_id.eq.${userId},user_id.is.null`);
+    } else {
+      // Not logged in: show only public sets
+      query = query.is("user_id", null);
+    }
     const { data } = await query;
     if (data) setRecentSets(data as FlashcardSet[]);
   }, [supabase, userId]);
@@ -171,7 +185,7 @@ function FlashcardsApp() {
         const response = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ topic: topic.trim(), count: quantity, userId }),
+          body: JSON.stringify({ topic: topic.trim(), count: quantity, userId, category: category.trim() || undefined }),
         });
 
         if (!response.ok) {
@@ -294,6 +308,22 @@ function FlashcardsApp() {
     }
   };
 
+  const handleEditCategory = async (setId: string, currentCategory: string | null) => {
+    const newCat = window.prompt("Nhập danh mục mới (để trống để xóa):", currentCategory || "");
+    if (newCat === null) return; // user clicked Cancel
+    const trimmed = newCat.trim() || null;
+    const { error: updateErr } = await supabase
+      .from("flashcard_sets")
+      .update({ category: trimmed })
+      .eq("id", setId);
+    if (updateErr) {
+      alert("Lỗi cập nhật: " + updateErr.message);
+    } else {
+      setToastMessage(trimmed ? `Đã đặt danh mục: ${trimmed}` : "Đã xóa danh mục");
+      fetchRecentSets();
+    }
+  };
+
   // Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: any) => {
@@ -351,8 +381,18 @@ function FlashcardsApp() {
               className="w-full px-4 py-3 rounded-xl bg-slate-900/50 border border-slate-600 text-white outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
-          <div className="w-full md:w-32">
-            <label className="block text-sm font-medium text-slate-300 mb-2">Quantity</label>
+          <div className="w-full md:w-40">
+            <label className="block text-sm font-medium text-slate-300 mb-2">Category (opt)</label>
+            <input
+              type="text"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              placeholder="ví dụ: Lịch sử..."
+              className="w-full px-4 py-3 rounded-xl bg-slate-900/50 border border-slate-600 text-white outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div className="w-full md:w-28">
+            <label className="block text-sm font-medium text-slate-300 mb-2">Số lượng</label>
             <input
               type="number"
               min={1} max={50}
@@ -435,14 +475,36 @@ function FlashcardsApp() {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {filteredSets.map(s => (
-              <button
+              <div
                 key={s.id}
                 onClick={() => { setTopic(s.topic); setFlashcards(s.cards); }}
-                className="text-left bg-slate-800/40 p-4 rounded-xl border border-slate-700/50 hover:border-indigo-500 transition-all group"
+                className="text-left bg-slate-800/40 p-4 rounded-xl border border-slate-700/50 hover:border-indigo-500 transition-all group relative cursor-pointer"
               >
-                <div className="font-bold text-slate-200 truncate group-hover:text-indigo-400">{s.topic}</div>
-                <div className="text-xs text-slate-500 mt-1">{s.cards.length} cards • {new Date(s.created_at).toLocaleDateString()}</div>
-              </button>
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="font-bold text-slate-200 break-words leading-snug group-hover:text-indigo-400 flex-1">
+                    {s.topic}
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleEditCategory(s.id, s.category || null); }}
+                    className="shrink-0 p-1 rounded-md hover:bg-slate-700 text-slate-600 hover:text-indigo-400 transition-colors"
+                    title="Sửa danh mục"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs text-slate-500">{s.cards.length} cards • {new Date(s.created_at).toLocaleDateString()}</div>
+                  {(s.category && s.category !== "Chưa phân loại") ? (
+                    <span className="text-[10px] font-bold px-2 py-0.5 bg-indigo-500/20 text-indigo-300 rounded-full border border-indigo-500/30 whitespace-nowrap">
+                      {s.category}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-medium px-2 py-0.5 bg-slate-800/80 text-slate-500 rounded-full border border-slate-700/50 whitespace-nowrap italic">
+                      Chưa gắn nhãn
+                    </span>
+                  )}
+                </div>
+              </div>
             ))}
           </div>
         </div>
