@@ -12,44 +12,40 @@ This project is a modern, AI-powered Flashcard Generator that helps users create
 ### **Core Technologies**
 - **Framework**: Next.js 15 (App Router & Server Actions)
 - **Language**: TypeScript (Strict Mode)
+### **Core Technologies**
+- **Framework**: Next.js 15 (App Router, AppShell Layout)
 - **UI Styling**: Tailwind CSS v4 (PostCSS)
   - **Theme**: Dark Blue (`#0f172a / slate-900`)
-  - **Effects**: Glassmorphism (`backdrop-blur`), Glow (`shadow-indigo-500/20`), Gradient Borders
-- **Animations**: Framer Motion (v12) for 3D flip effects and transitions
-- **Auth & DB**: Supabase (PostgreSQL + Auth)
-- **AI Infrastructure**: `@google/genai` (v1.39.0+, `gemini-flash-latest`)
+  - **Structural Components**: `AppSidebar.tsx` (Glassmorphic, Collapsible)
+- **Animations**: Framer Motion (v12) for Layout transitions and 3D card flips
+- **AI Infrastructure**: `@google/genai` (v1beta, Multi-model fallback rotation)
 
 ---
 
-## 2. Core Logic & Workflows
+## 2. Core Logic & Architecture
 
-### **Authentication & Database Sync**
-1.  **Sign Up**: `/signup` -> `supabase.auth.signUp()`
-    - **Trigger Sync**: `public.profiles` is created via PostgreSQL trigger. **Do NOT** write frontend logic to create profiles.
-2.  **Login**: `/login` -> `supabase.auth.signInWithPassword()`
-3.  **Guest vs. User**:
-    - **Guest**: `userId` is `null`. Local-only generation.
-    - **User**: `userId` is UUID. Can save sets to Supabase.
-4.  **RBAC**: Roles (`admin`, `user`) are stored in `profiles.role`.
+### **AppShell Layout**
+1.  **Sidebar**: `AppSidebar` handles primary navigation (Home, Analytics, Library, Admin).
+2.  **Stateful Tabs**: The main application uses a `activeTab` state to switch views without page reloads.
+3.  **Collapsible Mode**: Desktop sidebar can be toggled via `isCollapsed` state (persisted in `localStorage`).
 
-### **Data Flow Architecture**
-1.  **Client Request**: POST `/api/generate` with `{ topic }` and optional `{ quantity }`.
-2.  **Normalization**: POST `/api/normalize` to ensure consistent topic keys (e.g., "Python Programming").
-3.  **AI Extraction**: Manual Regex Extraction of JSON array (v1.5/2.0-flash).
-4.  **Display**: 3D Grid render with `Framer Motion`. 429 errors handled with cooldown.
+### **Data Flow & AI**
+1.  **Generation**: POST `/api/generate`. Prompts include `userCategory` for hybrid classification.
+2.  **Model Rotation**: On 429 Errors, the system rotates through: `2.0-flash-lite` -> `1.5-flash` -> `1.5-pro`.
+3.  **Smart UI**: `getCategoryColor(category)` utility maps topics to specific color themes (e.g., Programming -> Blue).
 
 ---
 
 ## 3. RBAC & Security Architecture
 
 ### **Authorization Policy**
-- **Server-Side Guard**: All administrative or sensitive API routes (e.g., `/api/admin/merge`) **MUST** verify the user's role from the `profiles` table on the server side.
-- **Rule**: `if (profile?.role !== 'admin') return 403 Forbidden`.
+- **Unified Guard**: `if (profile?.role !== 'admin') return 401/403`. 
+- **Admin Portal**: Secret administrative tools (Backfill, Merge) are containerized in the **Admin Tab**.
+- **Instant Access**: Toggle admin view with `Shift + M`.
 
 ### **Admin UI Standards**
-- **Access**: Admin tools are housed in the Admin Sidebar, toggled via `Shift + M`.
-- **Visibility**: Admins see a glowing "ADMIN" badge in the `Navbar`.
-- **Consistency**: Maintain glassmorphism and `framer-motion` for all admin panels.
+- **Visibility**: Admin-only icons (like Category Edit ✏️) are gated by `isAdmin` state.
+- **Backfill Safety**: API implemented with manual delay (7s) and immediate stop on quota exhaustion.
 
 ### **Schema Reference: `profiles` table**
 - `id`: UUID (Primary Key, matches `auth.users.id`)

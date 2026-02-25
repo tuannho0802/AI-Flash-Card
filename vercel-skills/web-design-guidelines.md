@@ -50,3 +50,14 @@ Design system and visual standards for the Dark Blue aesthetic.
   - `text-4xl`/`text-5xl`: Main Landing Title.
   - `text-2xl`: Section Headers / Auth Titles.
   - `text-sm`/`text-base`: Body text.
+## 5. Layout & Navigation Patterns
+
+### **AppShell Architecture**
+- **Desktop**: Persistent side-navigation (`AppSidebar`) with transition width (`64px` to `224px`).
+- **Main Content**: `overflow-y-auto` with restricted height (`h-screen`) to prevent global scrollbars.
+- **Glassmorphism**: Sidebar must use `bg-slate-900/70` with `backdrop-blur-xl` for depth.
+
+### **Interactive Navigation**
+- **Active State**: Use `bg-indigo-500/20 text-indigo-300 border-indigo-500/30` for active nav items.
+- **Admin Items**: Use `bg-amber-500/20 text-amber-300 border-amber-500/30` for admin management tabs.
+- **Micro-interactions**: Use spring-based animations for sidebar width and drawer entry/exit.

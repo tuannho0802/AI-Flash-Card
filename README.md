@@ -8,60 +8,56 @@
 ## 🚀 Key Features
 
 ### 🧠 Robust AI Integration
-- **Smart Model Selection**: Automatically targets `gemini-flash-latest` (via `v1beta` API) for the best balance of speed and stability.
-- **Resilient Error Handling**: Intelligent management of **429 Rate Limit** errors with a user-friendly countdown timer and automatic model fallback strategies to `gemini-1.5-flash` or `gemini-2.0-flash`.
-- **Zero 404s**: Advanced model verification ensures requests are never sent to deprecated or non-existent model endpoints.
+- **Hybrid AI Categorization**: Automatically categorizes topics into 1-2 words (e.g., Programming, English, Science) using prioritized logic.
+- **Smart Model Rotation**: Intelligent fallback system targeting:
+  1. `gemini-2.0-flash-lite` (Fastest, latest)
+  2. `gemini-1.5-flash` (Stable throughput)
+  3. `gemini-1.5-pro` (Highest quality / High quota limits)
+- **Resilient Error Handling**: Automatic handling of **429 Rate Limit** and **502 Gateway** errors with a user-friendly countdown and model rotation strategy.
 
-### 🛡️ "Anti-Fragile" JSON Parsing
-- **No More Crashes**: Instead of relying on the SDK's strict JSON Mode (which often fails with `400 INVALID_ARGUMENT` on Free Tier), we use a battle-tested **Manual Parsing Engine**.
-- **Regex & Slice Logic**: We cleanly extract JSON arrays from raw text responses, stripping out Markdown code blocks (` ```json `) to guarantee valid data every time.
+### 🧭 Navigation & UX
+- **Glassmorphic Sidebar**: Professional side navigation with smooth transitions and collapsible mode (3-bar toggle).
+- **Analytics Dashboard**: Real-time stats showing card counts, category distribution (CSS charts), and AI model usage.
+- **Unified Filter System**: Advanced history filtering by Category, Topic, or "Hard" cards.
 
-### 🎨 Modern & Responsive UI
-- **3D Flip Animations**: Smooth, physics-based card flipping effects powered by **Framer Motion**.
-- **Glassmorphism Design**: Sleek, modern interface using **Tailwind CSS v4** with dark mode support.
-- **Real-Time Feedback**: Instant loading states, error toasts, and rate-limit countdowns keep users informed.
+### 🛡️ Admin Portal (RBAC)
+- **Restricted Tools**: Dedicated Admin Section for **Backfill Categorization** and **Duplicate Merging**.
+- **Instant Access**: Toggle Admin Tab quickly using the `Shift + M` hotkey.
+- **Session-based Security**: API routes verified via unified role-based access control (RBAC).
 
 ## 🛠️ Tech Stack
 
-- **Framework**: [Next.js 15](https://nextjs.org/) (App Router & Server Actions)
-- **Language**: [TypeScript](https://www.typescriptlang.org/) (Strict Mode)
-- **AI SDK**: [`@google/genai`](https://www.npmjs.com/package/@google/genai) (Latest v1.39+)
-- **Styling**: [Tailwind CSS v4](https://tailwindcss.com/)
-- **Animation**: [Framer Motion](https://www.framer.com/motion/)
-- **Icons**: [Lucide React](https://lucide.dev/)
+- **Framework**: [Next.js 15](https://nextjs.org/) (App Router & AppShell layout)
+- **AI Infrastructure**: [Google GenAI SDK](https://www.npmjs.com/package/@google/genai) (`v1beta` API)
+- **Database/Auth**: [Supabase SSR](https://supabase.com/docs/guides/auth/server-side-rendering)
+- **Styling**: Tailwind CSS v4 + Framer Motion v12
+- **Icons**: Lucide React
 
 ## 📦 Getting Started
 
 ### Prerequisites
-- Node.js 18+ installed.
-- A Google Cloud API Key (Get one [here](https://aistudio.google.com/app/apikey)).
+- Node.js 18+ & Supabase Project.
+- A Google Cloud API Key.
 
-### Installation
+### Installation & Environment
 
-1.  **Clone the repository**:
-    ```bash
-    git clone https://github.com/your-username/ai-flashcards.git
-    cd ai-flashcards
-    ```
-
-2.  **Install dependencies**:
-    ```bash
-    npm install
-    # or
-    yarn install
-    # or
-    pnpm install
-    ```
-
-3.  **Configure Environment Variables**:
-    Create a `.env.local` file in the root directory based on `.env.example`:
-    ```bash
-    cp .env.example .env.local
-    ```
-    Add your Gemini API Key:
+1.  **Configure `.env.local`**:
     ```env
-    NEXT_PUBLIC_GEMINI_API_KEY=your_api_key_here
+    NEXT_PUBLIC_GEMINI_API_KEY=your_key
+    GEMINI_API_KEY=your_key
+    CRON_SECRET=your_secret_for_admin_api
+    NEXT_PUBLIC_SUPABASE_URL=...
+    NEXT_PUBLIC_SUPABASE_ANON_KEY=...
     ```
+
+## 🔐 Admin Guide
+
+### 1. Enabling Admin Status
+Admins are defined in the `profiles` table. The `role` column must be set to `'admin'`.
+
+### 2. Accessing Tools
+- **Hotkey**: Press `Shift + M` on any page to open the Admin tab in the sidebar.
+- **Backfill Tool**: Automatically processes uncategorized sets (3 records per run) with a 7s safety delay.
 
 4.  **Run the Development Server**:
     ```bash
