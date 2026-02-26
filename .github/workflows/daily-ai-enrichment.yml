@@ -97,6 +97,7 @@ jobs:
 
       - name: Process Topic 1
         id: topic1
+        continue-on-error: true
         uses: nick-fields/retry@v3
         with:
           timeout_minutes: 5
@@ -182,12 +183,14 @@ jobs:
             fi
 
       - name: Cooldown Between Topics
+        if: steps.topic1.outcome == 'success'
         run: |
           echo "⏸️ Cooling down for 45 seconds to respect rate limits..."
           sleep 45
 
       - name: Process Topic 2
         id: topic2
+        continue-on-error: true
         uses: nick-fields/retry@v3
         with:
           timeout_minutes: 5
