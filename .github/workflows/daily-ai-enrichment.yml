@@ -1,59 +1,370 @@
-name: Daily AI Enrichment
+name: Daily AI Enrichment (Fixed & Optimized)
 
 on:
   schedule:
     - cron: '0 0 * * *' # 00:00 UTC = 07:00 VN
   workflow_dispatch: # Allow manual trigger
+    inputs:
+      custom_topics:
+        description: 'Custom topics (comma-separated, optional)'
+        required: false
+        type: string
+
+env:
+  # Normalize SITE_URL to prevent trailing slash issues
+  BASE_URL: ${{ secrets.SITE_URL }}
 
 jobs:
-  enrich:
+  validate-config:
+    name: 🔍 Pre-flight Validation
     runs-on: ubuntu-latest
+    outputs:
+      site_url: ${{ steps.normalize.outputs.url }}
+    steps:
+      - name: Normalize Site URL
+        id: normalize
+        run: |
+          URL="${{ secrets.SITE_URL }}"
+          # Remove trailing slash if exists
+          URL="${URL%/}"
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "✅ Normalized URL: $URL"
+
+      - name: Validate Secrets
+        run: |
+          if [ -z "${{ secrets.SITE_URL }}" ]; then
+            echo "❌ SITE_URL secret is not set!"
+            exit 1
+          fi
+          if [ -z "${{ secrets.CRON_SECRET }}" ]; then
+            echo "❌ CRON_SECRET secret is not set!"
+            exit 1
+          fi
+          echo "✅ All required secrets are configured"
+
+  enrich:
+    name: 🚀 AI Content Generation
+    runs-on: ubuntu-latest
+    needs: validate-config
+    
+    strategy:
+      fail-fast: false # Continue even if one topic fails
+      matrix:
+        # This will be populated dynamically
+        include: []
+    
     steps:
       - name: Select Random Topics
         id: select-topics
         run: |
-          TOPICS=("Quantum Computing" "History of AI" "Ancient Civilizations" "Soft Skills for Managers" "Modern Web Development" "Healthy Lifestyle Hacks" "Space Exploration" "Behavioral Economics" "Classical Literature" "Cybersecurity Basics")
+          # Topic pool with proper categories (format: "topic|category")
+          TOPICS=(
+            "Quantum Computing|Công Nghệ"
+            "History of AI|Công Nghệ"
+            "Ancient Civilizations|Lịch Sử"
+            "Soft Skills for Managers|Kỹ Năng Mềm"
+            "Modern Web Development|Công Nghệ"
+            "Healthy Lifestyle Hacks|Sức Khỏe"
+            "Space Exploration|Khoa Học"
+            "Behavioral Economics|Kinh Tế"
+            "Classical Literature|Văn Học"
+            "Cybersecurity Basics|Công Nghệ"
+            "Machine Learning Fundamentals|Công Nghệ"
+            "Data Structures and Algorithms|Công Nghệ"
+            "Philosophy of Mind|Triết Học"
+            "Climate Change Science|Khoa Học"
+            "Personal Finance Management|Tài Chính"
+          )
+          
+          # Use custom topics if provided via workflow_dispatch
+          if [ -n "${{ github.event.inputs.custom_topics }}" ]; then
+            IFS=',' read -ra CUSTOM_TOPICS <<< "${{ github.event.inputs.custom_topics }}"
+            TOPICS=("${CUSTOM_TOPICS[@]}")
+            echo "📝 Using custom topics: ${TOPICS[*]}"
+          fi
+          
           # Pick 2 random unique topics
-          PICKED=$(printf "%s\n" "${TOPICS[@]}" | shuf -n 2 | tr '\n' ',' | sed 's/,$//')
-          echo "topics=$PICKED" >> $GITHUB_OUTPUT
-          echo "Selected Topics: $PICKED"
+          PICKED=$(printf "%s\n" "${TOPICS[@]}" | shuf -n 2)
+          
+          # Parse topics and categories into JSON
+          TOPIC_JSON=$(echo "$PICKED" | while IFS='|' read -r topic category; do
+            if [ -z "$category" ]; then
+              category="Khác"
+            fi
+            jq -n --arg t "$topic" --arg c "$category" '{topic: $t, category: $c}'
+          done | jq -s '.')
+          
+          echo "topics=$TOPIC_JSON" >> $GITHUB_OUTPUT
+          echo "topic_count=$(echo "$TOPIC_JSON" | jq 'length')" >> $GITHUB_OUTPUT
+          
+          echo "### 📚 Selected Topics for Today"
+          echo "$TOPIC_JSON" | jq -r '.[] | "- \(.topic) (\(.category))"'
+          echo ""
 
-      - name: Trigger Generation for Topic 1
-        uses: nick-fields/retry@v2
+      - name: Process Topic 1
+        id: topic1
+        uses: nick-fields/retry@v3
         with:
           timeout_minutes: 5
           max_attempts: 3
-          retry_wait_seconds: 30
+          retry_wait_seconds: 60 # Increased from 30 to avoid rapid 429 errors
+          warning_on_retry: true
+          on_retry_command: |
+            echo "⚠️ Retry attempt for Topic 1 due to error..."
+            echo "Waiting 60 seconds before next attempt..."
           command: |
-            TOPIC1=$(echo "${{ steps.select-topics.outputs.topics }}" | cut -d',' -f1)
-            echo "Processing Topic 1: $TOPIC1"
-            curl -X POST "${{ secrets.SITE_URL }}/api/generate" \
+            set -e # Exit on any error
+            
+            # Extract topic and category using jq
+            TOPIC1=$(echo '${{ steps.select-topics.outputs.topics }}' | jq -r '.[0].topic')
+            CATEGORY1=$(echo '${{ steps.select-topics.outputs.topics }}' | jq -r '.[0].category')
+            
+            if [ -z "$TOPIC1" ] || [ "$TOPIC1" = "null" ]; then
+              echo "❌ Failed to extract Topic 1"
+              exit 1
+            fi
+            
+            echo "🎯 Processing Topic 1: $TOPIC1"
+            echo "📂 Category: $CATEGORY1"
+            
+            # Properly construct JSON payload with escaped quotes
+            PAYLOAD=$(jq -n \
+              --arg topic "$TOPIC1" \
+              --arg category "$CATEGORY1" \
+              --argjson count 8 \
+              --argjson isCron true \
+              '{
+                topic: $topic,
+                category: $category,
+                count: $count,
+                isCron: $isCron
+              }')
+            
+            echo "📤 Payload: $PAYLOAD"
+            
+            # Make API request with proper error handling
+            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+              "${{ needs.validate-config.outputs.site_url }}/api/generate" \
               -H "Content-Type: application/json" \
               -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-              -d "{\"topic\": \"$TOPIC1\", \"count\": 8}" \
-              --fail-with-body
+              -H "User-Agent: GitHub-Actions-Daily-Enrichment/1.0" \
+              -d "$PAYLOAD")
+            
+            # Split response body and status code
+            HTTP_BODY=$(echo "$RESPONSE" | sed '$d')
+            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+            
+            echo "📥 HTTP Status: $HTTP_CODE"
+            echo "📥 Response Body: $HTTP_BODY"
+            
+            # Check for success status codes (200-299)
+            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+              echo "✅ Topic 1 processed successfully!"
+              
+              # Try to extract model info if available
+              MODEL_USED=$(echo "$HTTP_BODY" | jq -r '.modelUsed // "N/A"' 2>/dev/null || echo "N/A")
+              CARDS_COUNT=$(echo "$HTTP_BODY" | jq -r '.flashcards | length' 2>/dev/null || echo "N/A")
+              
+              echo "model_used=$MODEL_USED" >> $GITHUB_OUTPUT
+              echo "cards_count=$CARDS_COUNT" >> $GITHUB_OUTPUT
+              echo "status=success" >> $GITHUB_OUTPUT
+              echo "topic=$TOPIC1" >> $GITHUB_OUTPUT
+            else
+              echo "❌ API returned error status: $HTTP_CODE"
+              echo "Error body: $HTTP_BODY"
+              
+              # Check for specific error types
+              if [ "$HTTP_CODE" = "429" ]; then
+                echo "⏳ Rate limit hit - will retry after cooldown"
+                RETRY_AFTER=$(echo "$HTTP_BODY" | jq -r '.retryAfter // 60' 2>/dev/null || echo "60")
+                echo "Suggested retry after: ${RETRY_AFTER}s"
+              elif [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
+                echo "🔒 Authentication error - check CRON_SECRET"
+              fi
+              
+              echo "status=failed" >> $GITHUB_OUTPUT
+              echo "error_code=$HTTP_CODE" >> $GITHUB_OUTPUT
+              exit 1
+            fi
 
-      - name: Cooldown
-        run: sleep 30
+      - name: Cooldown Between Topics
+        run: |
+          echo "⏸️ Cooling down for 45 seconds to respect rate limits..."
+          sleep 45
 
-      - name: Trigger Generation for Topic 2
-        uses: nick-fields/retry@v2
+      - name: Process Topic 2
+        id: topic2
+        uses: nick-fields/retry@v3
         with:
           timeout_minutes: 5
           max_attempts: 3
-          retry_wait_seconds: 30
+          retry_wait_seconds: 60
+          warning_on_retry: true
+          on_retry_command: |
+            echo "⚠️ Retry attempt for Topic 2 due to error..."
+            echo "Waiting 60 seconds before next attempt..."
           command: |
-            TOPIC2=$(echo "${{ steps.select-topics.outputs.topics }}" | cut -d',' -f2)
-            echo "Processing Topic 2: $TOPIC2"
-            curl -X POST "${{ secrets.SITE_URL }}/api/generate" \
+            set -e
+            
+            # Extract topic and category using jq
+            TOPIC2=$(echo '${{ steps.select-topics.outputs.topics }}' | jq -r '.[1].topic')
+            CATEGORY2=$(echo '${{ steps.select-topics.outputs.topics }}' | jq -r '.[1].category')
+            
+            if [ -z "$TOPIC2" ] || [ "$TOPIC2" = "null" ]; then
+              echo "❌ Failed to extract Topic 2"
+              exit 1
+            fi
+            
+            echo "🎯 Processing Topic 2: $TOPIC2"
+            echo "📂 Category: $CATEGORY2"
+            
+            PAYLOAD=$(jq -n \
+              --arg topic "$TOPIC2" \
+              --arg category "$CATEGORY2" \
+              --argjson count 8 \
+              --argjson isCron true \
+              '{
+                topic: $topic,
+                category: $category,
+                count: $count,
+                isCron: $isCron
+              }')
+            
+            echo "📤 Payload: $PAYLOAD"
+            
+            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+              "${{ needs.validate-config.outputs.site_url }}/api/generate" \
               -H "Content-Type: application/json" \
               -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-              -d "{\"topic\": \"$TOPIC2\", \"count\": 8}" \
-              --fail-with-body
+              -H "User-Agent: GitHub-Actions-Daily-Enrichment/1.0" \
+              -d "$PAYLOAD")
+            
+            HTTP_BODY=$(echo "$RESPONSE" | sed '$d')
+            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+            
+            echo "📥 HTTP Status: $HTTP_CODE"
+            echo "📥 Response Body: $HTTP_BODY"
+            
+            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+              echo "✅ Topic 2 processed successfully!"
+              
+              MODEL_USED=$(echo "$HTTP_BODY" | jq -r '.modelUsed // "N/A"' 2>/dev/null || echo "N/A")
+              CARDS_COUNT=$(echo "$HTTP_BODY" | jq -r '.flashcards | length' 2>/dev/null || echo "N/A")
+              
+              echo "model_used=$MODEL_USED" >> $GITHUB_OUTPUT
+              echo "cards_count=$CARDS_COUNT" >> $GITHUB_OUTPUT
+              echo "status=success" >> $GITHUB_OUTPUT
+              echo "topic=$TOPIC2" >> $GITHUB_OUTPUT
+            else
+              echo "❌ API returned error status: $HTTP_CODE"
+              echo "Error body: $HTTP_BODY"
+              
+              if [ "$HTTP_CODE" = "429" ]; then
+                RETRY_AFTER=$(echo "$HTTP_BODY" | jq -r '.retryAfter // 60' 2>/dev/null || echo "60")
+                echo "⏳ Rate limit - suggested retry: ${RETRY_AFTER}s"
+              fi
+              
+              echo "status=failed" >> $GITHUB_OUTPUT
+              echo "error_code=$HTTP_CODE" >> $GITHUB_OUTPUT
+              exit 1
+            fi
 
-      - name: Report Summary
+      - name: Generate Detailed Report
         if: always()
         run: |
-          echo "### Daily AI Enrichment Summary 🚀" >> $GITHUB_STEP_SUMMARY
-          echo "- **Topics Processed:** ${{ steps.select-topics.outputs.topics }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Status:** Done" >> $GITHUB_STEP_SUMMARY
+          echo "# 🤖 Daily AI Enrichment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Execution Time:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "**Workflow Run:** [\#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "## 📊 Processing Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| # | Topic | Status | AI Model | Cards | Details |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|-------|--------|----------|-------|---------|" >> $GITHUB_STEP_SUMMARY
+          
+          # Topic 1 row
+          TOPIC1_STATUS="${{ steps.topic1.outputs.status }}"
+          TOPIC1_TOPIC="${{ steps.topic1.outputs.topic }}"
+          TOPIC1_MODEL="${{ steps.topic1.outputs.model_used }}"
+          TOPIC1_CARDS="${{ steps.topic1.outputs.cards_count }}"
+          TOPIC1_ERROR="${{ steps.topic1.outputs.error_code }}"
+          
+          if [ "$TOPIC1_STATUS" = "success" ]; then
+            TOPIC1_ICON="✅"
+            TOPIC1_DETAILS="Generated successfully"
+          else
+            TOPIC1_ICON="❌"
+            TOPIC1_DETAILS="Error: HTTP $TOPIC1_ERROR"
+          fi
+          
+          echo "| 1 | $TOPIC1_TOPIC | $TOPIC1_ICON | \`$TOPIC1_MODEL\` | $TOPIC1_CARDS | $TOPIC1_DETAILS |" >> $GITHUB_STEP_SUMMARY
+          
+          # Topic 2 row
+          TOPIC2_STATUS="${{ steps.topic2.outputs.status }}"
+          TOPIC2_TOPIC="${{ steps.topic2.outputs.topic }}"
+          TOPIC2_MODEL="${{ steps.topic2.outputs.model_used }}"
+          TOPIC2_CARDS="${{ steps.topic2.outputs.cards_count }}"
+          TOPIC2_ERROR="${{ steps.topic2.outputs.error_code }}"
+          
+          if [ "$TOPIC2_STATUS" = "success" ]; then
+            TOPIC2_ICON="✅"
+            TOPIC2_DETAILS="Generated successfully"
+          else
+            TOPIC2_ICON="❌"
+            TOPIC2_DETAILS="Error: HTTP $TOPIC2_ERROR"
+          fi
+          
+          echo "| 2 | $TOPIC2_TOPIC | $TOPIC2_ICON | \`$TOPIC2_MODEL\` | $TOPIC2_CARDS | $TOPIC2_DETAILS |" >> $GITHUB_STEP_SUMMARY
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Summary statistics
+          TOTAL_SUCCESS=0
+          [ "$TOPIC1_STATUS" = "success" ] && TOTAL_SUCCESS=$((TOTAL_SUCCESS + 1))
+          [ "$TOPIC2_STATUS" = "success" ] && TOTAL_SUCCESS=$((TOTAL_SUCCESS + 1))
+          
+          TOTAL_CARDS=0
+          [ -n "$TOPIC1_CARDS" ] && [ "$TOPIC1_CARDS" != "N/A" ] && TOTAL_CARDS=$((TOTAL_CARDS + TOPIC1_CARDS))
+          [ -n "$TOPIC2_CARDS" ] && [ "$TOPIC2_CARDS" != "N/A" ] && TOTAL_CARDS=$((TOTAL_CARDS + TOPIC2_CARDS))
+          
+          echo "## 📈 Statistics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Success Rate:** $TOTAL_SUCCESS/2 ($(( TOTAL_SUCCESS * 50 ))%)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Flashcards Generated:** $TOTAL_CARDS" >> $GITHUB_STEP_SUMMARY
+          echo "- **API Endpoint:** \`${{ needs.validate-config.outputs.site_url }}/api/generate\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Add troubleshooting section if any failed
+          if [ $TOTAL_SUCCESS -lt 2 ]; then
+            echo "## 🔧 Troubleshooting" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Some topics failed to process. Common causes:" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- **429 Errors:** Gemini API rate limit reached. Wait longer between requests." >> $GITHUB_STEP_SUMMARY
+            echo "- **401/403 Errors:** Check if \`CRON_SECRET\` matches the API's expected value." >> $GITHUB_STEP_SUMMARY
+            echo "- **500 Errors:** API internal error. Check server logs." >> $GITHUB_STEP_SUMMARY
+            echo "- **Network Issues:** Verify \`SITE_URL\` is accessible and correct." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "*Powered by Google Gemini AI • Next.js 15 • GitHub Actions*" >> $GITHUB_STEP_SUMMARY
+
+  notify-on-failure:
+    name: 🚨 Failure Notification
+    runs-on: ubuntu-latest
+    needs: enrich
+    if: failure()
+    steps:
+      - name: Report Failure
+        run: |
+          echo "## ⚠️ Daily Enrichment Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The daily AI enrichment workflow encountered errors." >> $GITHUB_STEP_SUMMARY
+          echo "Please check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Common Solutions:**" >> $GITHUB_STEP_SUMMARY
+          echo "1. Verify API secrets are correctly configured" >> $GITHUB_STEP_SUMMARY
+          echo "2. Check Gemini API quota and rate limits" >> $GITHUB_STEP_SUMMARY
+          echo "3. Ensure backend API is accessible and running" >> $GITHUB_STEP_SUMMARY
