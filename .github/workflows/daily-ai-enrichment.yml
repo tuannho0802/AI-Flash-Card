@@ -47,12 +47,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: validate-config
     
-    strategy:
-      fail-fast: false # Continue even if one topic fails
-      matrix:
-        # This will be populated dynamically
-        include: []
-    
     steps:
       - name: Select Random Topics
         id: select-topics
