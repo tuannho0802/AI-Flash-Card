@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       custom_topics:
-        description: 'Custom topics (comma-separated, optional)'
+        description: 'Custom topics (format: Topic1|Category1,Topic2|Category2)'
         required: false
         type: string
 
@@ -25,7 +25,7 @@ jobs:
             echo "ERROR: CRON_SECRET secret is not set"
             exit 1
           fi
-          echo "All required secrets are configured"
+          echo "✅ All required secrets are configured"
 
   enrich:
     name: 🚀 AI Content Generation
@@ -36,66 +36,63 @@ jobs:
       - name: Select Random Topics
         id: select-topics
         run: |
-          # Define topics with categories
-          declare -A TOPIC_CATEGORIES=(
-            ["Quantum Computing"]="Công Nghệ"
-            ["History of AI"]="Công Nghệ"
-            ["Ancient Civilizations"]="Lịch Sử"
-            ["Soft Skills for Managers"]="Kỹ Năng Mềm"
-            ["Modern Web Development"]="Công Nghệ"
-            ["Healthy Lifestyle Hacks"]="Sức Khỏe"
-            ["Space Exploration"]="Khoa Học"
-            ["Behavioral Economics"]="Kinh Tế"
-            ["Classical Literature"]="Văn Học"
-            ["Cybersecurity Basics"]="Công Nghệ"
-            ["Machine Learning Fundamentals"]="Công Nghệ"
-            ["Data Structures and Algorithms"]="Công Nghệ"
-            ["Philosophy of Mind"]="Triết Học"
-            ["Climate Change Science"]="Khoa Học"
-            ["Personal Finance Management"]="Tài Chính"
+          # Define topics with categories (format: Topic|Category)
+          TOPICS=(
+            "Quantum Computing|Công Nghệ"
+            "History of AI|Công Nghệ"
+            "Ancient Civilizations|Lịch Sử"
+            "Soft Skills for Managers|Quản trị"
+            "Modern Web Development|Công Nghệ"
+            "Healthy Lifestyle Hacks|Sức Khỏe"
+            "Space Exploration|Khoa học"
+            "Behavioral Economics|Kinh tế"
+            "Classical Literature|Văn học"
+            "Cybersecurity Basics|Công Nghệ"
+            "Machine Learning Fundamentals|Công Nghệ"
+            "Data Structures and Algorithms|Công Nghệ"
+            "Philosophy of Mind|Triết học"
+            "Climate Change Science|Khoa học"
+            "Personal Finance Management|Tài chính"
           )
-          
-          # Get all topic names
-          TOPICS=($(printf '%s\n' "${!TOPIC_CATEGORIES[@]}"))
           
           # Use custom topics if provided
           if [ -n "${{ github.event.inputs.custom_topics }}" ]; then
-            IFS=',' read -ra CUSTOM_TOPICS <<< "${{ github.event.inputs.custom_topics }}"
-            TOPICS=("${CUSTOM_TOPICS[@]}")
-            echo "Using custom topics: ${TOPICS[*]}"
+            IFS=',' read -ra TOPICS <<< "${{ github.event.inputs.custom_topics }}"
+            echo "📝 Using custom topics: ${TOPICS[*]}"
           fi
           
-          # Pick 2 random topics
+          # Pick 2 random topics using shuf
           SELECTED=$(printf '%s\n' "${TOPICS[@]}" | shuf -n 2)
           
-          # Extract topic 1 and 2
-          TOPIC1=$(echo "$SELECTED" | sed -n '1p')
-          TOPIC2=$(echo "$SELECTED" | sed -n '2p')
+          # Extract Topic 1
+          LINE1=$(echo "$SELECTED" | sed -n '1p')
+          TOPIC1=$(echo "$LINE1" | cut -d'|' -f1)
+          CATEGORY1=$(echo "$LINE1" | cut -d'|' -f2)
           
-          # Get categories (default to "Khác" if not found)
-          CATEGORY1="${TOPIC_CATEGORIES[$TOPIC1]:-Khác}"
-          CATEGORY2="${TOPIC_CATEGORIES[$TOPIC2]:-Khác}"
+          # Extract Topic 2
+          LINE2=$(echo "$SELECTED" | sed -n '2p')
+          TOPIC2=$(echo "$LINE2" | cut -d'|' -f1)
+          CATEGORY2=$(echo "$LINE2" | cut -d'|' -f2)
           
-          # Save to outputs using delimiter to avoid format issues
-          echo "topic1<<EOF" >> $GITHUB_OUTPUT
-          echo "$TOPIC1" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          # Save to outputs using heredoc
+          cat >> $GITHUB_OUTPUT <<EOF
+          topic1<<TOPIC1_EOF
+          $TOPIC1
+          TOPIC1_EOF
+          category1<<CAT1_EOF
+          $CATEGORY1
+          CAT1_EOF
+          topic2<<TOPIC2_EOF
+          $TOPIC2
+          TOPIC2_EOF
+          category2<<CAT2_EOF
+          $CATEGORY2
+          CAT2_EOF
+          EOF
           
-          echo "category1<<EOF" >> $GITHUB_OUTPUT
-          echo "$CATEGORY1" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          
-          echo "topic2<<EOF" >> $GITHUB_OUTPUT
-          echo "$TOPIC2" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          
-          echo "category2<<EOF" >> $GITHUB_OUTPUT
-          echo "$CATEGORY2" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          
-          echo "### Selected Topics for Today"
-          echo "- $TOPIC1 ($CATEGORY1)"
-          echo "- $TOPIC2 ($CATEGORY2)"
+          echo "### 📚 Selected Topics for Today"
+          echo "- **$TOPIC1** ($CATEGORY1)"
+          echo "- **$TOPIC2** ($CATEGORY2)"
 
       - name: Process Topic 1
         id: topic1
@@ -106,45 +103,39 @@ jobs:
           SITE_URL="${{ secrets.SITE_URL }}"
           SITE_URL="${SITE_URL%/}"
           
-          echo "Processing Topic 1: $TOPIC"
-          echo "Category: $CATEGORY"
+          echo "🎯 Processing Topic 1: $TOPIC"
+          echo "📂 Category: $CATEGORY"
           
-          # Construct JSON payload
-          PAYLOAD=$(cat <<JSON
-          {
-            "topic": "$TOPIC",
-            "category": "$CATEGORY",
-            "count": 8,
-            "isCron": true
-          }
-          JSON
-          )
+          # Construct JSON payload using jq for safe escaping
+          PAYLOAD=$(jq -n \
+            --arg topic "$TOPIC" \
+            --arg category "$CATEGORY" \
+            --argjson count 8 \
+            --argjson isCron true \
+            '{topic: $topic, category: $category, count: $count, isCron: $isCron}')
           
-          echo "Payload:"
-          echo "$PAYLOAD"
+          echo "📤 Payload: $PAYLOAD"
           
           # Make API request
           RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST \
             "$SITE_URL/api/generate" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "User-Agent: GitHub-Actions-Daily-Enrichment/1.0" \
             -d "$PAYLOAD")
           
           # Extract HTTP code
           HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
           HTTP_BODY=$(echo "$RESPONSE" | sed '/HTTP_CODE:/d')
           
-          echo "HTTP Status: $HTTP_CODE"
-          echo "Response: $HTTP_BODY"
+          echo "📥 HTTP Status: $HTTP_CODE"
+          echo "📥 Response: $HTTP_BODY"
           
           if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
-            echo "SUCCESS: Topic 1 processed"
+            echo "✅ Topic 1 processed successfully"
             echo "status=success" >> $GITHUB_OUTPUT
-            echo "topic<<EOF" >> $GITHUB_OUTPUT
-            echo "$TOPIC" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
           else
-            echo "FAILED: HTTP $HTTP_CODE"
+            echo "❌ FAILED: HTTP $HTTP_CODE"
             echo "status=failed" >> $GITHUB_OUTPUT
             echo "error_code=$HTTP_CODE" >> $GITHUB_OUTPUT
             exit 1
@@ -153,7 +144,7 @@ jobs:
       - name: Cooldown Between Topics
         if: steps.topic1.outcome == 'success'
         run: |
-          echo "Cooling down for 45 seconds..."
+          echo "⏸️ Cooling down for 45 seconds to respect rate limits..."
           sleep 45
 
       - name: Process Topic 2
@@ -165,45 +156,39 @@ jobs:
           SITE_URL="${{ secrets.SITE_URL }}"
           SITE_URL="${SITE_URL%/}"
           
-          echo "Processing Topic 2: $TOPIC"
-          echo "Category: $CATEGORY"
+          echo "🎯 Processing Topic 2: $TOPIC"
+          echo "📂 Category: $CATEGORY"
           
-          # Construct JSON payload
-          PAYLOAD=$(cat <<JSON
-          {
-            "topic": "$TOPIC",
-            "category": "$CATEGORY",
-            "count": 8,
-            "isCron": true
-          }
-          JSON
-          )
+          # Construct JSON payload using jq for safe escaping
+          PAYLOAD=$(jq -n \
+            --arg topic "$TOPIC" \
+            --arg category "$CATEGORY" \
+            --argjson count 8 \
+            --argjson isCron true \
+            '{topic: $topic, category: $category, count: $count, isCron: $isCron}')
           
-          echo "Payload:"
-          echo "$PAYLOAD"
+          echo "📤 Payload: $PAYLOAD"
           
           # Make API request
           RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST \
             "$SITE_URL/api/generate" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "User-Agent: GitHub-Actions-Daily-Enrichment/1.0" \
             -d "$PAYLOAD")
           
           # Extract HTTP code
           HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
           HTTP_BODY=$(echo "$RESPONSE" | sed '/HTTP_CODE:/d')
           
-          echo "HTTP Status: $HTTP_CODE"
-          echo "Response: $HTTP_BODY"
+          echo "📥 HTTP Status: $HTTP_CODE"
+          echo "📥 Response: $HTTP_BODY"
           
           if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
-            echo "SUCCESS: Topic 2 processed"
+            echo "✅ Topic 2 processed successfully"
             echo "status=success" >> $GITHUB_OUTPUT
-            echo "topic<<EOF" >> $GITHUB_OUTPUT
-            echo "$TOPIC" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
           else
-            echo "FAILED: HTTP $HTTP_CODE"
+            echo "❌ FAILED: HTTP $HTTP_CODE"
             echo "status=failed" >> $GITHUB_OUTPUT
             echo "error_code=$HTTP_CODE" >> $GITHUB_OUTPUT
             exit 1
@@ -212,37 +197,40 @@ jobs:
       - name: Generate Report
         if: always()
         run: |
-          echo "# Daily AI Enrichment Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Execution Time:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          echo "## Processing Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| # | Topic | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|---|-------|--------|" >> $GITHUB_STEP_SUMMARY
-          
-          # Topic 1
-          TOPIC1_STATUS="${{ steps.topic1.outcome }}"
-          TOPIC1_TOPIC="${{ steps.select-topics.outputs.topic1 }}"
-          if [ "$TOPIC1_STATUS" = "success" ]; then
-            echo "| 1 | $TOPIC1_TOPIC | ✅ Success |" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "| 1 | $TOPIC1_TOPIC | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          # Topic 2
-          TOPIC2_STATUS="${{ steps.topic2.outcome }}"
-          TOPIC2_TOPIC="${{ steps.select-topics.outputs.topic2 }}"
-          if [ "$TOPIC2_STATUS" = "success" ]; then
-            echo "| 2 | $TOPIC2_TOPIC | ✅ Success |" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "| 2 | $TOPIC2_TOPIC | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "*Powered by Google Gemini AI*" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "# 🤖 Daily AI Enrichment Summary"
+            echo ""
+            echo "**Execution Time:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo ""
+            echo "## 📊 Processing Results"
+            echo ""
+            echo "| # | Topic | Category | Status |"
+            echo "|---|-------|----------|--------|"
+            
+            # Topic 1
+            TOPIC1="${{ steps.select-topics.outputs.topic1 }}"
+            CAT1="${{ steps.select-topics.outputs.category1 }}"
+            STATUS1="${{ steps.topic1.outcome }}"
+            if [ "$STATUS1" = "success" ]; then
+              echo "| 1 | $TOPIC1 | $CAT1 | ✅ Success |"
+            else
+              echo "| 1 | $TOPIC1 | $CAT1 | ❌ Failed |"
+            fi
+            
+            # Topic 2
+            TOPIC2="${{ steps.select-topics.outputs.topic2 }}"
+            CAT2="${{ steps.select-topics.outputs.category2 }}"
+            STATUS2="${{ steps.topic2.outcome }}"
+            if [ "$STATUS2" = "success" ]; then
+              echo "| 2 | $TOPIC2 | $CAT2 | ✅ Success |"
+            else
+              echo "| 2 | $TOPIC2 | $CAT2 | ❌ Failed |"
+            fi
+            
+            echo ""
+            echo "---"
+            echo "*Powered by Google Gemini AI • Next.js 15*"
+          } >> $GITHUB_STEP_SUMMARY
 
   notify-on-failure:
     name: 🚨 Failure Notification
@@ -252,5 +240,11 @@ jobs:
     steps:
       - name: Report Failure
         run: |
-          echo "Daily enrichment workflow encountered errors"
-          echo "Check the workflow logs for details"
+          {
+            echo "## ⚠️ Daily Enrichment Failed"
+            echo ""
+            echo "The workflow encountered errors. Common causes:"
+            echo "- 429 Rate Limit: Gemini API quota exhausted"
+            echo "- 401/403 Auth Error: Check CRON_SECRET"
+            echo "- 500 Server Error: Check backend logs"
+          } >> $GITHUB_STEP_SUMMARY
