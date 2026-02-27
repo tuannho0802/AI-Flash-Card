@@ -152,12 +152,34 @@ function FlashcardsApp() {
 
   const analyticsData = useMemo(() => {
     const totalCards = recentSets.reduce((sum, s) => sum + s.cards.length, 0);
-    const byCategory: Record<string, number> = {};
+    
+    // Grouping by ID to prevent text-based duplicates (e.g., "Lịch sử" vs "lịch sử")
+    const categoryInfoMap = new Map<string, { count: number, name: string, category: any }>();
+    
     recentSets.forEach(s => {
-      const cat = s.category || "Chưa phân loại";
-      byCategory[cat] = (byCategory[cat] || 0) + s.cards.length;
+      // Use category_id as primary key, fallback to a special key for unlinked sets
+      const groupKey = s.category_id || "UNCATEGORIZED";
+      const existing = categoryInfoMap.get(groupKey);
+      
+      if (existing) {
+        existing.count += s.cards.length;
+        // If we found a set with the actual categories relation, use it for metadata
+        if (!existing.category && s.categories) {
+          existing.category = s.categories;
+          existing.name = s.categories.name;
+        }
+      } else {
+        categoryInfoMap.set(groupKey, { 
+          count: s.cards.length, 
+          name: s.categories?.name || s.category || "Chưa phân loại",
+          category: s.categories || null 
+        });
+      }
     });
-    const sorted = Object.entries(byCategory).sort((a, b) => b[1] - a[1]);
+
+    const sorted = Array.from(categoryInfoMap.values())
+      .sort((a, b) => b.count - a.count);
+
     return { totalCards, totalSets: recentSets.length, byCategory: sorted };
   }, [recentSets]);
 
@@ -590,20 +612,39 @@ function FlashcardsApp() {
               <h2 className="font-bold text-white">Phân bố danh mục</h2>
               {analyticsData.byCategory.length === 0 ? (
                 <p className="text-slate-500 text-sm">Chưa có dữ liệu</p>
-              ) : analyticsData.byCategory.map(([cat, count]) => (
-                <div key={cat}>
-                  <div className="flex justify-between items-center mb-1.5">
-                    <CategoryBadge fallbackName={cat} />
-                    <span className="text-slate-400">{count} thẻ · {Math.round((count / analyticsData.totalCards) * 100)}%</span>
+              ) : analyticsData.byCategory.map((item) => {
+                const percentage = Math.round((item.count / (analyticsData.totalCards || 1)) * 100);
+                const colorKey = item.category?.color || (item.name === "Chưa phân loại" ? "slate" : "indigo");
+                
+                const barColorClass = colorKey === "blue" ? "from-blue-600 to-blue-400"
+                  : colorKey === "emerald" ? "from-emerald-600 to-emerald-400"
+                  : colorKey === "amber" ? "from-amber-600 to-amber-400"
+                  : colorKey === "purple" ? "from-purple-600 to-purple-400"
+                  : colorKey === "cyan" ? "from-cyan-600 to-cyan-400"
+                  : colorKey === "rose" ? "from-rose-600 to-rose-400"
+                  : colorKey === "pink" ? "from-pink-600 to-pink-400"
+                  : colorKey === "orange" ? "from-orange-600 to-orange-400"
+                  : colorKey === "indigo" ? "from-indigo-600 to-indigo-400"
+                  : colorKey === "green" ? "from-green-600 to-green-400"
+                  : "from-slate-600 to-slate-500";
+
+                return (
+                  <div key={item.category?.id || item.name}>
+                    <div className="flex justify-between items-center mb-1.5">
+                      <CategoryBadge category={item.category} fallbackName={item.name} />
+                      <span className="text-slate-400 text-sm">{item.count} thẻ · {percentage}%</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-slate-700/50 overflow-hidden">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${percentage}%` }}
+                        transition={{ duration: 1, ease: "easeOut" }}
+                        className={`h-2 rounded-full bg-linear-to-r ${barColorClass} shadow-[0_0_8px_rgba(0,0,0,0.3)]`}
+                      />
+                    </div>
                   </div>
-                  <div className="h-2 rounded-full bg-slate-700/50">
-                    <div
-                      className="h-2 rounded-full bg-gradient-to-r from-indigo-500 to-cyan-500 transition-all"
-                      style={{ width: `${Math.round((count / analyticsData.totalCards) * 100)}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700/50">

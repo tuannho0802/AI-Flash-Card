@@ -139,7 +139,40 @@ USING (auth.jwt() ->> 'email' = 'phela101990@gmail.com');
 
 ---
 
-## 4. Legacy Cleanup & Normalization
+## 4. Duplicate Category Merging (Data Cleanup)
+
+If your dashboard shows the same category multiple times (e.g., "History" and "history"), use these commands to consolidate them into a single canonical record.
+
+### Step 1: Identify and Merge Unlinked Sets
+This script finds sets with the same category name (ignoring case) and links them to the same ID.
+```sql
+-- Link all sets sharing the same name to the most recent category ID
+UPDATE flashcard_sets fs
+SET category_id = sub.id
+FROM (
+  SELECT id, lower(name) as lower_name,
+         ROW_NUMBER() OVER(PARTITION BY lower(name) ORDER BY created_at DESC) as rank
+  FROM categories
+) sub
+WHERE lower(fs.category) = sub.lower_name
+AND sub.rank = 1;
+```
+
+### Step 2: Delete redundant Category records
+After updating the links, you can safely remove the duplicate categories.
+```sql
+DELETE FROM categories
+WHERE id NOT IN (
+  SELECT id FROM (
+    SELECT id, ROW_NUMBER() OVER(PARTITION BY lower(name) ORDER BY created_at ASC) as rank
+    FROM categories
+  ) WHERE rank = 1
+);
+```
+
+---
+
+## 5. Legacy Cleanup & Normalization
 
 Run these commands if you are migrating from an older version of the app to populate missing data.
 

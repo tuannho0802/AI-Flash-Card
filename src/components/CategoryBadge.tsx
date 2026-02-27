@@ -1,6 +1,7 @@
 import React from 'react';
 import * as LucideIcons from 'lucide-react';
 import {COLOR_MAP} from '@/utils/categoryColor';
+import { getBestIcon } from '@/utils/categoryUtils';
 
 interface CategoryBadgeProps {
   category?: {
@@ -15,7 +16,7 @@ interface CategoryBadgeProps {
 export function CategoryBadge({ category, fallbackName }: CategoryBadgeProps) {
   // Determine display values
   const name = category?.name || fallbackName || "Chưa phân loại";
-  const iconName = category?.icon || "Tag";
+  const iconName = category?.icon || getBestIcon(name);
   const colorKey = category?.color || "slate";
 
   // Get color classes
