@@ -2,30 +2,58 @@ import { createClient } from '@/utils/supabase/server';
 import { NextResponse } from 'next/server';
 import { getCategoryColor } from '@/utils/categoryColor';
 
+const CATEGORY_TRANSLATIONS: Record<string, string> = {
+    "science": "Khoa học",
+    "math": "Toán học",
+    "mathematics": "Toán học",
+    "literature": "Văn học",
+    "history": "Lịch sử",
+    "geography": "Địa lý",
+    "programming": "Lập trình",
+    "technology": "Công nghệ",
+    "tech": "Công nghệ",
+    "business": "Kinh doanh",
+    "health": "Sức khỏe",
+    "medicine": "Y tế",
+    "language": "Ngôn ngữ",
+    "languages": "Ngôn ngữ",
+    "art": "Nghệ thuật",
+    "music": "Âm nhạc",
+    "biology": "Sinh học",
+    "chemistry": "Hóa học",
+    "physics": "Vật lý",
+    "psychology": "Tâm lý học",
+    "finance": "Tài chính",
+    "economics": "Kinh tế"
+};
+
 // Temporary map for icons based on keywords matching categoryColor.ts
 function getCategoryIcon(category: string): string {
     const cat = category.toLowerCase();
 
-    if (cat.includes("lập trình") || cat.includes("công nghệ") || cat.includes("programming") || cat.includes("software") || cat.includes("code") || cat.includes("tech"))
+    if (cat.includes("lập trình") || cat.includes("công nghệ") || cat.includes("programming") || cat.includes("software") || cat.includes("code") || cat.includes("tech") || cat.includes("cpu"))
         return "Code";
 
-    if (cat.includes("tiếng") || cat.includes("ngôn ngữ") || cat.includes("english") || cat.includes("language") || cat.includes("văn học") || cat.includes("literature"))
+    if (cat.includes("tiếng") || cat.includes("ngôn ngữ") || cat.includes("english") || cat.includes("language") || cat.includes("văn học") || cat.includes("literature") || cat.includes("book"))
         return "Languages";
 
-    if (cat.includes("lịch sử") || cat.includes("history") || cat.includes("địa lý") || cat.includes("geography"))
+    if (cat.includes("lịch sử") || cat.includes("history") || cat.includes("địa lý") || cat.includes("geography") || cat.includes("globe"))
         return "Globe";
 
-    if (cat.includes("khoa học") || cat.includes("science") || cat.includes("vật lý") || cat.includes("hóa") || cat.includes("physics") || cat.includes("chemistry"))
+    if (cat.includes("khoa học") || cat.includes("science") || cat.includes("vật lý") || cat.includes("hóa") || cat.includes("physics") || cat.includes("chemistry") || cat.includes("microscope"))
         return "Microscope";
 
-    if (cat.includes("toán") || cat.includes("math") || cat.includes("thống kê") || cat.includes("statistics"))
+    if (cat.includes("toán") || cat.includes("math") || cat.includes("thống kê") || cat.includes("statistics") || cat.includes("calculator"))
         return "Calculator";
 
-    if (cat.includes("y tế") || cat.includes("sinh học") || cat.includes("biology") || cat.includes("health") || cat.includes("y học"))
+    if (cat.includes("y tế") || cat.includes("sinh học") || cat.includes("biology") || cat.includes("health") || cat.includes("y học") || cat.includes("pulse"))
         return "HeartPulse";
 
-    if (cat.includes("kinh") || cat.includes("business") || cat.includes("tài chính") || cat.includes("finance"))
+    if (cat.includes("kinh") || cat.includes("business") || cat.includes("tài chính") || cat.includes("finance") || cat.includes("economics") || cat.includes("chart"))
         return "TrendingUp";
+
+    if (cat.includes("âm nhạc") || cat.includes("music") || cat.includes("nghệ thuật") || cat.includes("art"))
+        return "Music";
 
     return "Tag";
 }
@@ -101,18 +129,26 @@ export async function POST() {
             categoryMap.set(cat.slug, cat);
         });
 
-        // 3. Fetch unique category strings from sets where category_id is NULL
-        const { data: sets, error: fetchError } = await supabase
-            .from('flashcard_sets')
-            .select('id, category')
-            .is('category_id', null);
+        // 3. Identify sets to migrate (including those stuck in 'Chưa phân loại' which have actual names)
+        const fallbackCat = categoryMap.get(generateSlug('Chưa phân loại'));
+
+        let query = supabase.from('flashcard_sets').select('id, category, category_id');
+
+        if (fallbackCat?.id) {
+            // Fetch if ID is NULL OR (ID is fallback AND text is not "Chưa phân loại")
+            query = query.or(`category_id.is.null,and(category_id.eq.${fallbackCat.id},category.neq.Chưa phân loại)`);
+        } else {
+            query = query.is('category_id', null);
+        }
+
+        const { data: sets, error: fetchError } = await query;
 
         if (fetchError) {
             return NextResponse.json({ error: `Failed to fetch flashcard sets: ${fetchError.message}` }, { status: 500 });
         }
 
         if (!sets || sets.length === 0) {
-            return NextResponse.json({ message: 'No sets require migration (all have category_id).' });
+            return NextResponse.json({ message: 'No sets require migration (all are already categorized).' });
         }
 
         // 4. Identify missing categories and deduplicate by slug AND normalized name in memory
@@ -123,12 +159,13 @@ export async function POST() {
             if (set.category && set.category.trim() !== '') {
                 const rawCat = set.category.trim();
                 const normalizedCat = normalizeString(rawCat);
-                const slug = generateSlug(normalizedCat);
+                const translatedCat = CATEGORY_TRANSLATIONS[normalizedCat] || rawCat;
+                const slug = generateSlug(translatedCat);
 
                 // Only add to insertion list if it doesn't exist in DB OR isn't already in our maps
                 if (!categoryMap.has(slug) && !missingCategoriesBySlug.has(slug)) {
-                    missingCategoriesBySlug.set(slug, normalizedCat);
-                    normalizedToRaw.set(normalizedCat, rawCat);
+                    missingCategoriesBySlug.set(slug, translatedCat);
+                    normalizedToRaw.set(translatedCat, rawCat);
                 }
             }
         });
@@ -137,11 +174,11 @@ export async function POST() {
         if (missingCategoriesBySlug.size > 0) {
             const categoriesToInsert = [];
 
-            for (const [slug, rawName] of Array.from(missingCategoriesBySlug.entries())) {
+            for (const [slug, translatedName] of Array.from(missingCategoriesBySlug.entries())) {
                 // Determine final properties
-                let finalName = rawName;
-                let icon = getCategoryIcon(rawName);
-                let colorClass = getCategoryColor(rawName);
+                let finalName = translatedName;
+                let icon = getCategoryIcon(translatedName);
+                let colorClass = getCategoryColor(translatedName);
                 let colorKeyword = extractColorKeyword(colorClass);
 
                 // Special explicit mapping requested by user
@@ -189,47 +226,78 @@ export async function POST() {
             }
         }
 
-        // 5. Update flashcard_sets with category_id (Batch processing)
+        // 5. Update flashcard_sets with category_id (Autonomous & Robust)
         let updatedCount = 0;
-        const fallbackCat = categoryMap.get(generateSlug('Chưa phân loại'));
-
+        let fixedNamesCount = 0;
         // We process in batches of 50 as requested
         const BATCH_SIZE = 50;
         for (let i = 0; i < sets.length; i += BATCH_SIZE) {
             const batch = sets.slice(i, i + BATCH_SIZE);
 
-            await Promise.all(batch.map(async (set) => {
+            const results = await Promise.allSettled(batch.map(async (set) => {
                 let assignedId = null;
+                let standardName = null;
 
                 if (set.category && set.category.trim() !== '') {
-                    const slug = generateSlug(set.category.trim());
+                    const rawCat = set.category.trim();
+                    const normalizedCat = normalizeString(rawCat);
+                    const translatedCat = CATEGORY_TRANSLATIONS[normalizedCat] || rawCat;
+                    const slug = generateSlug(translatedCat);
+
+                    // Special mapping for 'Khác' -> 'Chưa phân loại'
                     if (slug === 'khac') {
                         assignedId = fallbackCat?.id || null;
+                        standardName = 'Chưa phân loại';
                     } else {
-                        assignedId = categoryMap.get(slug)?.id || null;
+                        const matchedCat = categoryMap.get(slug);
+                        if (matchedCat) {
+                            assignedId = matchedCat.id;
+                            standardName = matchedCat.name;
+                        }
                     }
                 } else {
                     assignedId = fallbackCat?.id || null;
+                    standardName = 'Chưa phân loại';
                 }
 
                 if (assignedId) {
+                    const updatePayload: any = { category_id: assignedId };
+
+                    // SCENARIO 2: Auto-fix minor deviations
+                    // If the text in 'category' column is different from the DB standard name, fix it!
+                    let nameWasFixed = false;
+                    if (standardName && set.category !== standardName) {
+                        updatePayload.category = standardName;
+                        nameWasFixed = true;
+                    }
+
                     const { error: updateError } = await supabase
                         .from('flashcard_sets')
-                        .update({ category_id: assignedId })
+                        .update(updatePayload)
                         .eq('id', set.id);
 
-                    if (updateError) {
-                        console.error(`Error updating set ${set.id}:`, updateError);
-                    } else {
-                        updatedCount++;
-                    }
+                    if (updateError) throw updateError;
+                    return { fixed: nameWasFixed };
                 }
+                return { fixed: false };
             }));
+
+            // Count successes
+            results.forEach(res => {
+                if (res.status === 'fulfilled') {
+                    updatedCount++;
+                    if (res.value.fixed) fixedNamesCount++;
+                } else {
+                    console.error("Batch update item failed:", res.reason);
+                }
+            });
         }
 
         return NextResponse.json({
-            message: 'Migration completed successfully',
-            missingCategoriesInserted: newCategoriesInserted,
+            message: 'Autonomous synchronization completed',
+            summary: `Đã xử lý ${sets.length} bản ghi. Đã sửa ${fixedNamesCount} lỗi tên, đã thêm ${newCategoriesInserted} danh mục mới.`,
+            newCategoriesCount: newCategoriesInserted,
+            fixedNamesCount: fixedNamesCount,
             setsUpdatedCount: updatedCount,
             totalSetsScanned: sets.length
         });

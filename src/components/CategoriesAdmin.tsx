@@ -112,8 +112,8 @@ export default function CategoriesAdmin({ supabase }: { supabase: any }) {
       const data = await res.json();
       
       if (res.ok) {
-        setToast(`Đã đồng bộ thành công ${data.setsUpdatedCount || 0} bản ghi`);
-        setTimeout(() => setToast(null), 5000);
+        setToast(data.summary || `Đã đồng bộ thành công ${data.setsUpdatedCount || 0} bản ghi`);
+        setTimeout(() => setToast(null), 8000);
         fetchCategories(); // Refresh list to see if new categories were created
       } else {
         alert("Lỗi đồng bộ: " + (data.error || "Unknown error"));
@@ -147,7 +147,7 @@ export default function CategoriesAdmin({ supabase }: { supabase: any }) {
               className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-slate-200 px-4 py-2 rounded-xl transition-colors font-medium border border-slate-600 disabled:opacity-50"
             >
               {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-              Đồng bộ dữ liệu cũ
+              Kiểm tra & Sửa lỗi đồng bộ
             </button>
             <button onClick={handleAddNew} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl transition-colors font-medium">
               <Plus className="w-4 h-4" /> Thêm Mới

@@ -16,29 +16,7 @@ export function CategoryBadge({ category, fallbackName }: CategoryBadgeProps) {
   // Determine display values
   const name = category?.name || fallbackName || "Chưa phân loại";
   const iconName = category?.icon || "Tag";
-  let colorKey = category?.color || "slate";
-
-  // If no category relation is provided but we have a fallback, try to determine legacy color 
-  // (We use getCategoryColor fallback logic in case it's a legacy component)
-  if (!category && fallbackName) {
-    if (fallbackName.toLowerCase().includes("tech") || fallbackName.toLowerCase().includes("lập trình") || fallbackName.toLowerCase().includes("công nghệ") || fallbackName.toLowerCase().includes("code")) {
-      colorKey = "blue";
-    } else if (fallbackName.toLowerCase().includes("tiếng") || fallbackName.toLowerCase().includes("english")) {
-      colorKey = "green";
-    } else if (fallbackName.toLowerCase().includes("khoa học")) {
-      colorKey = "purple";
-    } else if (fallbackName.toLowerCase().includes("toán")) {
-      colorKey = "cyan";
-    } else if (fallbackName.toLowerCase().includes("lịch sử") || fallbackName.toLowerCase().includes("địa lý")) {
-      colorKey = "amber";
-    } else if (fallbackName.toLowerCase().includes("kinh") || fallbackName.toLowerCase().includes("tài chính")) {
-      colorKey = "orange";
-    } else if (fallbackName.toLowerCase().includes("y tế") || fallbackName.toLowerCase().includes("sinh học")) {
-      colorKey = "rose";
-    } else {
-      colorKey = "indigo";
-    }
-  }
+  const colorKey = category?.color || "slate";
 
   // Get color classes
   const colorParams = COLOR_MAP[colorKey] || COLOR_MAP['slate'];

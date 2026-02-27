@@ -191,10 +191,36 @@ function generateSlug(name: string): string {
     return name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd').replace(/([^0-9a-z-\s])/g, '').replace(/(\s+)/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
 }
 
-async function resolveCategoryId(supabase: any, categoryName: string | null): Promise<string | null> {
+const CATEGORY_TRANSLATIONS: Record<string, string> = {
+    "science": "Khoa học",
+    "math": "Toán học",
+    "mathematics": "Toán học",
+    "literature": "Văn học",
+    "history": "Lịch sử",
+    "geography": "Địa lý",
+    "programming": "Lập trình",
+    "technology": "Công nghệ",
+    "tech": "Công nghệ",
+    "business": "Kinh doanh",
+    "health": "Sức khỏe",
+    "medicine": "Y tế",
+    "language": "Ngôn ngữ",
+    "languages": "Ngôn ngữ",
+    "art": "Nghệ thuật",
+    "music": "Âm nhạc"
+};
+
+function normalizeString(str: string): string {
+    return str.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+async function resolveCategoryId(supabase: any, categoryName: string | null): Promise<{ id: string, name: string } | null> {
     if (!categoryName || categoryName.trim() === '') return null;
-    const catText = categoryName.trim();
-    let slug = generateSlug(catText);
+
+    const rawCat = categoryName.trim();
+    const normalizedCat = normalizeString(rawCat);
+    const translatedName = CATEGORY_TRANSLATIONS[normalizedCat] || rawCat;
+    let slug = generateSlug(translatedName);
 
     // Handing special cases to map to default
     if (slug === 'khac' || slug === 'chua-phan-loai') {
@@ -204,12 +230,12 @@ async function resolveCategoryId(supabase: any, categoryName: string | null): Pr
     // Attempt to lookup
     const { data: existingCat, error: lookupErr } = await supabase
         .from('categories')
-        .select('id')
+        .select('id, name')
         .eq('slug', slug)
         .single();
 
     if (existingCat?.id) {
-        return existingCat.id;
+        return { id: existingCat.id, name: existingCat.name };
     }
 
     if (lookupErr && lookupErr.code !== 'PGRST116') { // PGRST116 is "No rows found"
@@ -220,8 +246,8 @@ async function resolveCategoryId(supabase: any, categoryName: string | null): Pr
     const randomIcon = ICONS[Math.floor(Math.random() * ICONS.length)];
     const randomColor = COLORS[Math.floor(Math.random() * COLORS.length)];
 
-    // Use 'Chưa phân loại' if that's what we mapped to
-    const finalName = slug === 'chua-phan-loai' ? 'Chưa phân loại' : catText;
+    // Use translatedName if we are creating new
+    const finalName = slug === 'chua-phan-loai' ? 'Chưa phân loại' : translatedName;
 
     const { data: newCat, error: insertErr } = await supabase
         .from('categories')
@@ -237,12 +263,12 @@ async function resolveCategoryId(supabase: any, categoryName: string | null): Pr
     if (insertErr) {
         console.error("Failed to auto-create category:", insertErr);
         // Maybe someone else created it concurrently, try reading once more
-        const { data: retryCat } = await supabase.from('categories').select('id').eq('slug', slug).single();
-        return retryCat?.id || null;
+        const { data: retryCat } = await supabase.from('categories').select('id, name').eq('slug', slug).single();
+        return retryCat ? { id: retryCat.id, name: retryCat.name } : null;
     }
 
     console.log(`Generate API: Auto-created new category: "${finalName}"`);
-    return newCat?.id || null;
+    return { id: (newCat as any).id, name: finalName };
 }
 
 async function saveToDatabase(data: any, userId: string | undefined, originalTopic: string, category?: string | null) {
@@ -253,9 +279,11 @@ async function saveToDatabase(data: any, userId: string | undefined, originalTop
 
         console.log(`Generate API: Background Save - Processing "${normalized_topic}"...`);
 
-        // Resolve Category ID
+        // Resolve Category ID and Canonical Name
         const finalCategoryText = category || "Chưa phân loại";
-        const categoryId = await resolveCategoryId(supabase, finalCategoryText);
+        const catInfo = await resolveCategoryId(supabase, finalCategoryText);
+        const categoryId = catInfo?.id || null;
+        const canonicalCategoryName = catInfo?.name || finalCategoryText;
 
         // 1. Search for existing set by normalized_topic OR original topic in aliases
         const { data: existingSets, error: searchError } = await supabase
@@ -301,11 +329,11 @@ async function saveToDatabase(data: any, userId: string | undefined, originalTop
 
             // Overwrite category string and link id if a new one is provided
             if (category) {
-                updatePayload.category = finalCategoryText;
+                updatePayload.category = canonicalCategoryName;
                 updatePayload.category_id = categoryId;
             } else if (!primarySet.category_id && categoryId) {
-                // If it was previously unlinked, ink it now
-                updatePayload.category = finalCategoryText;
+                // If it was previously unlinked, link it now
+                updatePayload.category = canonicalCategoryName;
                 updatePayload.category_id = categoryId;
             }
 
@@ -331,7 +359,7 @@ async function saveToDatabase(data: any, userId: string | undefined, originalTop
                     user_id: userId || null,
                     contributor_ids: userId ? [userId] : [],
                     aliases: [originalTopic],
-                    category: finalCategoryText,
+                    category: canonicalCategoryName,
                     category_id: categoryId
                 });
 
