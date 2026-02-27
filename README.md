@@ -17,21 +17,32 @@
 
 ### 🧭 Navigation & UX
 - **Glassmorphic Sidebar**: Professional side navigation with smooth transitions and collapsible mode (3-bar toggle).
-- **Analytics Dashboard**: Real-time stats showing card counts, category distribution (CSS charts), and AI model usage.
-- **Unified Filter System**: Advanced history filtering by Category, Topic, or "Hard" cards.
+- **Autonomous Category System**: Fully automated classification for every flashcard set.
+  - **Semantic Icon Mapping**: Leverages a 50+ icon library to assign meaningful visuals based on topic keywords.
+  - **Smart Auto-Fix**: Automatically translates and repairs legacy names.
+- **Intelligent Search Engine**: Powered by **PostgreSQL GIN Indexes** on array-based `aliases` to recognize synonyms and multi-language searches instantly.
+
+### 🧠 Database Workflow & AI Pipeline
+To maintain a high-quality library, the system follows a structured data pipeline:
+1.  **Normalization**: AI converts raw user input (e.g., "hoc js") into a canonical `normalized_topic` (e.g., "JavaScript Programming").
+2.  **Aliasing**: Key phrases and variations are stored in the `aliases` array for resilient searching.
+3.  **Auto-linking**: The engine calls `resolveCategoryId` to find or create the perfect category match using semantic mapping.
+4.  **Contributor Tracking**: Every user who generates or merges cards for a set is tracked in the `contributor_ids` (UUID[]) column.
 
 ### 🛡️ Admin Portal (RBAC)
-- **Restricted Tools**: Dedicated Admin Section for **Backfill Categorization** and **Duplicate Merging**.
+- **Restricted Tools**: Dedicated Admin Section for **Category Management**, **Backfill Categorization**, and **Duplicate Merging**.
 - **Instant Access**: Toggle Admin Tab quickly using the `Shift + M` hotkey.
-- **Session-based Security**: API routes verified via unified role-based access control (RBAC).
+- **Session-based Security**: API routes verified via `getUser()` and `process.env.ADMIN_EMAIL`.
 
 ## 🛠️ Tech Stack
 
 - **Framework**: [Next.js 15](https://nextjs.org/) (App Router & AppShell layout)
 - **AI Infrastructure**: [Google GenAI SDK](https://www.npmjs.com/package/@google/genai) (`v1beta` API)
-- **Database/Auth**: [Supabase SSR](https://supabase.com/docs/guides/auth/server-side-rendering)
+- **Database**: [Supabase](https://supabase.com/) (PostgreSQL)
+  - **Advanced Features**: GIN Indexes, Array types, PL/pgSQL Triggers, and Row Level Security.
 - **Styling**: Tailwind CSS v4 + Framer Motion v12
 - **Icons**: Lucide React
+
 
 ## 📦 Getting Started
 

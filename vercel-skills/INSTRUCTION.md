@@ -31,8 +31,11 @@ This project is a modern, AI-powered Flashcard Generator that helps users create
 
 ### **Data Flow & AI**
 1.  **Generation**: POST `/api/generate`. Prompts include `userCategory` for hybrid classification.
-2.  **Model Rotation**: On 429 Errors, the system rotates through: `2.0-flash-lite` -> `1.5-flash` -> `1.5-pro`.
-3.  **Smart UI**: `getCategoryColor(category)` utility maps topics to specific color themes (e.g., Programming -> Blue).
+2.  **Autonomous Classification**: AI-generated text categories are processed via `resolveCategoryId`.
+    -   **Semantic Mapping**: Uses `getBestIcon(name)` from `categoryUtils.ts` to assign icons based on 50+ keywords.
+    -   **Auto-Translation**: English category names are automatically translated to Vietnamese (e.g., *Math* -> *Toán học*).
+3.  **Model Rotation**: On 429 Errors, the system rotates through: `2.0-flash-lite` -> `1.5-flash` -> `1.5-pro`.
+4.  **Smart UI**: `CategoryBadge.tsx` uses the synchronized `category_id` to render the official icon/color from DB. Fallback to `LayoutGrid` (slate) if unlinked.
 
 ---
 
@@ -46,6 +49,19 @@ This project is a modern, AI-powered Flashcard Generator that helps users create
 ### **Admin UI Standards**
 - **Visibility**: Admin-only icons (like Category Edit ✏️) are gated by `isAdmin` state.
 - **Backfill Safety**: API implemented with manual delay (7s) and immediate stop on quota exhaustion.
+
+### **Schema Reference: `categories` table**
+- `id`: UUID (Primary Key)
+- `name`: TEXT (Unique, e.g., 'Công nghệ')
+- `slug`: TEXT (Unique, e.g., 'cong-nghe')
+- `icon`: TEXT (Lucide icon name, e.g., 'Code')
+- `color`: TEXT (Tailwind color key, e.g., 'blue')
+
+### **Schema Reference: `flashcard_sets` table**
+- `id`: UUID (Primary Key)
+- `category`: TEXT (Normalized text version, legacy/display)
+- `category_id`: UUID (Foreign Key -> `categories.id`)
+- `normalized_topic`: TEXT (Standardized title)
 
 ### **Schema Reference: `profiles` table**
 - `id`: UUID (Primary Key, matches `auth.users.id`)

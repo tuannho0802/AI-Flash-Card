@@ -10,6 +10,7 @@
 - [x] **Multi-Model Fallback**: Intelligent rotation from `2.0-flash-lite` -> `1.5-flash` -> `1.5-pro` on quota errors.
 - [x] **Admin Hotkey**: `Shift + M` integration to instantly open the Admin management portal.
 - [x] **Public Library**: Specialized view for system-wide flashcard sets.
+- [x] **Autonomous Category System**: Intelligent classification engine with semantic icon mapping (50+ icons), auto-translation, and database synchronization.
 
 ### **In Progress**
 - [ ] **Flashcard Export**: PDF/Markdown export for offline study.
@@ -38,4 +39,10 @@
 - **Architecture**: Used a dual-navigation approach:
     - **Desktop**: Persistent `AppSidebar` with spring-based Framer Motion transitions.
     - **Mobile**: Collapses to a `Menu` icon top-bar and a slide-in `AnimatePresence` drawer.
-- **UX**: Sidebar width persists in `localStorage` for a consistent user experience.
+### **4. Autonomous Category Intelligence**
+- **Problem**: Inconsistent category labels (e.g., 'Science' vs 'Khoa học') and generic icons (Tag/LayoutGrid) across thousands of user-generated sets.
+- **Solution**:
+    - **Utility Architecture**: Created `categoryUtils.ts` as the central engine for normalization, slug generation, and semantic mapping.
+    - **Semantic Engine**: Implemented `getBestIcon` using regex-based keyword matching for 50+ Lucide icons, prioritizing specific topics (Rocket, Beaker, Banknote).
+    - **Migration API**: Developed a robust synchronizer that audits existing records, creates missing categories on-the-fly, and 'polishes' metadata (translating English names and upgrading icons).
+- **Result**: Data integrity is maintained automatically during AI generation and history browsing. All sets now feature professional, semantically-correct visuals.
