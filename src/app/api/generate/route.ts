@@ -184,6 +184,67 @@ export async function POST(req: Request) {
     }
 }
 
+const ICONS = ["Tag", "Code", "Brain", "Heart", "Globe", "Microscope", "BookOpen", "Cpu", "Briefcase", "Music", "Languages", "Calculator", "Palette", "TrendingUp", "Zap"];
+const COLORS = ["blue", "emerald", "amber", "purple", "cyan", "rose", "pink", "orange", "indigo", "slate"];
+
+function generateSlug(name: string): string {
+    return name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd').replace(/([^0-9a-z-\s])/g, '').replace(/(\s+)/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+async function resolveCategoryId(supabase: any, categoryName: string | null): Promise<string | null> {
+    if (!categoryName || categoryName.trim() === '') return null;
+    const catText = categoryName.trim();
+    let slug = generateSlug(catText);
+
+    // Handing special cases to map to default
+    if (slug === 'khac' || slug === 'chua-phan-loai') {
+        slug = 'chua-phan-loai';
+    }
+
+    // Attempt to lookup
+    const { data: existingCat, error: lookupErr } = await supabase
+        .from('categories')
+        .select('id')
+        .eq('slug', slug)
+        .single();
+
+    if (existingCat?.id) {
+        return existingCat.id;
+    }
+
+    if (lookupErr && lookupErr.code !== 'PGRST116') { // PGRST116 is "No rows found"
+        console.error("Resolve Category lookup error:", lookupErr);
+    }
+
+    // Insert new category
+    const randomIcon = ICONS[Math.floor(Math.random() * ICONS.length)];
+    const randomColor = COLORS[Math.floor(Math.random() * COLORS.length)];
+
+    // Use 'Chưa phân loại' if that's what we mapped to
+    const finalName = slug === 'chua-phan-loai' ? 'Chưa phân loại' : catText;
+
+    const { data: newCat, error: insertErr } = await supabase
+        .from('categories')
+        .insert([{
+            name: finalName,
+            slug: slug,
+            icon: slug === 'chua-phan-loai' ? 'Tag' : randomIcon,
+            color: slug === 'chua-phan-loai' ? 'slate' : randomColor
+        }])
+        .select('id')
+        .single();
+
+    if (insertErr) {
+        console.error("Failed to auto-create category:", insertErr);
+        // Maybe someone else created it concurrently, try reading once more
+        const { data: retryCat } = await supabase.from('categories').select('id').eq('slug', slug).single();
+        return retryCat?.id || null;
+    }
+
+    console.log(`Generate API: Auto-created new category: "${finalName}"`);
+    return newCat?.id || null;
+}
+
 async function saveToDatabase(data: any, userId: string | undefined, originalTopic: string, category?: string | null) {
     try {
         const supabase = await createClient();
@@ -191,6 +252,10 @@ async function saveToDatabase(data: any, userId: string | undefined, originalTop
         const normLower = normalized_topic.toLowerCase().trim();
 
         console.log(`Generate API: Background Save - Processing "${normalized_topic}"...`);
+
+        // Resolve Category ID
+        const finalCategoryText = category || "Chưa phân loại";
+        const categoryId = await resolveCategoryId(supabase, finalCategoryText);
 
         // 1. Search for existing set by normalized_topic OR original topic in aliases
         const { data: existingSets, error: searchError } = await supabase
@@ -233,8 +298,16 @@ async function saveToDatabase(data: any, userId: string | undefined, originalTop
                 aliases: Array.from(aliases).filter(Boolean),
                 updated_at: new Date().toISOString()
             };
-            // Only overwrite category if a new one is provided
-            if (category) updatePayload.category = category;
+
+            // Overwrite category string and link id if a new one is provided
+            if (category) {
+                updatePayload.category = finalCategoryText;
+                updatePayload.category_id = categoryId;
+            } else if (!primarySet.category_id && categoryId) {
+                // If it was previously unlinked, ink it now
+                updatePayload.category = finalCategoryText;
+                updatePayload.category_id = categoryId;
+            }
 
             const { error: updateError } = await supabase
                 .from("flashcard_sets")
@@ -258,7 +331,8 @@ async function saveToDatabase(data: any, userId: string | undefined, originalTop
                     user_id: userId || null,
                     contributor_ids: userId ? [userId] : [],
                     aliases: [originalTopic],
-                    category: category || null
+                    category: finalCategoryText,
+                    category_id: categoryId
                 });
 
             if (insertError) {

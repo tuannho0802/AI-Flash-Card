@@ -37,7 +37,8 @@ async function HandleBackfill(req: Request) {
         if (!isAuthorized) {
             const supabaseCheck = await createClient();
             const { data: { user } } = await supabaseCheck.auth.getUser();
-            if (user) {
+            const adminEmail = process.env.ADMIN_EMAIL;
+            if (user && user.email === adminEmail) {
                 const { data: prof } = await supabaseCheck.from("profiles").select("role").eq("id", user.id).single();
                 isAdminSession = prof?.role === "admin";
             }

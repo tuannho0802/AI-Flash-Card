@@ -15,7 +15,8 @@ export async function POST(req: Request) {
             .eq("id", user.id)
             .single();
 
-        if (profile?.role !== 'admin') {
+        const adminEmail = process.env.ADMIN_EMAIL;
+        if (profile?.role !== 'admin' || user.email !== adminEmail) {
             return Response.json({ error: "Forbidden: Admin access required" }, { status: 403 });
         }
 

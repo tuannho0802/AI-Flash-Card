@@ -3,6 +3,15 @@ export interface Flashcard {
   back: string;
 }
 
+export interface Category {
+  id: string;
+  name: string;
+  slug: string;
+  icon: string;
+  color: string;
+  created_at: string;
+}
+
 export interface FlashcardSet {
   id: string;
   topic: string;
@@ -13,6 +22,8 @@ export interface FlashcardSet {
   contributor_ids?: string[] | null;
   aliases?: string[] | null;
   category?: string | null;
+  category_id?: string | null;
+  categories?: Category | null;
 }
 
 export interface Profile {

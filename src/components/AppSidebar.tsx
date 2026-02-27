@@ -1,9 +1,9 @@
 "use client";
 
-import { Home, BarChart2, Library, Shield, X, BrainCircuit, Menu } from "lucide-react";
+import { Home, BarChart2, Library, Shield, X, BrainCircuit, Menu, Tags } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
-export type SidebarTab = "home" | "analytics" | "library" | "admin";
+export type SidebarTab = "home" | "analytics" | "library" | "admin" | "categories";
 
 interface AppSidebarProps {
   activeTab: SidebarTab;
@@ -132,6 +132,14 @@ function SidebarContent({
               isActive={activeTab === "admin"}
               isAdmin
               onClick={() => navigate("admin")}
+              isCollapsed={isCollapsed}
+            />
+            <NavItem
+              icon={Tags}
+              label="Quản lý Danh mục"
+              isActive={activeTab === "categories"}
+              isAdmin
+              onClick={() => navigate("categories")}
               isCollapsed={isCollapsed}
             />
           </>

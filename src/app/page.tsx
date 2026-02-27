@@ -27,7 +27,9 @@ import { createClient } from "@/utils/supabase/client";
 import { Flashcard, FlashcardSet } from "@/types/flashcard";
 import { useLearningProgress } from "@/hooks/useLearningProgress";
 import { getCategoryColor } from "@/utils/categoryColor";
+import { CategoryBadge } from "@/components/CategoryBadge";
 import AppSidebar, { SidebarTab } from "@/components/AppSidebar";
+import CategoriesAdmin from "@/components/CategoriesAdmin";
 
 import GridMode from "@/components/display-modes/GridMode";
 import StudyMode from "@/components/display-modes/StudyMode";
@@ -115,7 +117,7 @@ function FlashcardsApp() {
   const fetchRecentSets = useCallback(async () => {
     let query = supabase
       .from("flashcard_sets")
-      .select("*")
+      .select("*, categories(*)")
       .order("created_at", { ascending: false })
       .limit(24);
     if (userId) {
@@ -553,9 +555,9 @@ function FlashcardsApp() {
                         <div className="text-xs text-slate-500">
                           {s.cards.length} cards • {new Date(s.created_at).toLocaleDateString()}
                         </div>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border whitespace-nowrap ${getCategoryColor(s.category)} ${!s.category || s.category === "Chưa phân loại" ? "italic font-medium" : ""}`}>
-                          {s.category && s.category !== "Chưa phân loại" ? s.category : "Chưa gắn nhãn"}
-                        </span>
+                        <div className="scale-90 origin-right">
+                          <CategoryBadge category={s.categories} fallbackName={s.category} />
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -590,8 +592,8 @@ function FlashcardsApp() {
                 <p className="text-slate-500 text-sm">Chưa có dữ liệu</p>
               ) : analyticsData.byCategory.map(([cat, count]) => (
                 <div key={cat}>
-                  <div className="flex justify-between text-sm mb-1.5">
-                    <span className={`font-medium px-2 py-0.5 rounded-md text-xs border ${getCategoryColor(cat)}`}>{cat}</span>
+                  <div className="flex justify-between items-center mb-1.5">
+                    <CategoryBadge fallbackName={cat} />
                     <span className="text-slate-400">{count} thẻ · {Math.round((count / analyticsData.totalCards) * 100)}%</span>
                   </div>
                   <div className="h-2 rounded-full bg-slate-700/50">
@@ -634,9 +636,9 @@ function FlashcardsApp() {
                   <div className="font-semibold text-slate-200 group-hover:text-indigo-400 break-words leading-snug mb-3">{s.topic}</div>
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-slate-500">{s.cards.length} cards</span>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border whitespace-nowrap ${getCategoryColor(s.category)}`}>
-                      {s.category || "Chưa gắn nhãn"}
-                    </span>
+                    <div className="scale-90 origin-right">
+                      <CategoryBadge category={s.categories} fallbackName={s.category} />
+                    </div>
                   </div>
                 </div>
               ))}
@@ -693,6 +695,11 @@ function FlashcardsApp() {
               </button>
             </div>
           </div>
+        )}
+
+        {/* ─── CATEGORIES ADMIN ─────────────────────────────────────────────────────── */}
+        {activeTab === "categories" && isAdmin && (
+          <CategoriesAdmin supabase={supabase} />
         )}
       </div>
 
