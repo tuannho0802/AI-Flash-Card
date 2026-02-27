@@ -2,66 +2,12 @@ import { createClient } from '@/utils/supabase/server';
 import { NextResponse } from 'next/server';
 import { getCategoryColor } from '@/utils/categoryColor';
 
-const CATEGORY_TRANSLATIONS: Record<string, string> = {
-    "science": "Khoa học",
-    "math": "Toán học",
-    "mathematics": "Toán học",
-    "literature": "Văn học",
-    "history": "Lịch sử",
-    "geography": "Địa lý",
-    "programming": "Lập trình",
-    "technology": "Công nghệ",
-    "tech": "Công nghệ",
-    "business": "Kinh doanh",
-    "health": "Sức khỏe",
-    "medicine": "Y tế",
-    "language": "Ngôn ngữ",
-    "languages": "Ngôn ngữ",
-    "art": "Nghệ thuật",
-    "music": "Âm nhạc",
-    "biology": "Sinh học",
-    "chemistry": "Hóa học",
-    "physics": "Vật lý",
-    "psychology": "Tâm lý học",
-    "finance": "Tài chính",
-    "economics": "Kinh tế"
-};
-
-// Temporary map for icons based on keywords matching categoryColor.ts
-function getCategoryIcon(category: string): string {
-    const cat = category.toLowerCase();
-
-    if (cat.includes("lập trình") || cat.includes("công nghệ") || cat.includes("programming") || cat.includes("software") || cat.includes("code") || cat.includes("tech") || cat.includes("cpu"))
-        return "Code";
-
-    if (cat.includes("tiếng") || cat.includes("ngôn ngữ") || cat.includes("english") || cat.includes("language") || cat.includes("văn học") || cat.includes("literature") || cat.includes("book"))
-        return "Languages";
-
-    if (cat.includes("lịch sử") || cat.includes("history") || cat.includes("địa lý") || cat.includes("geography") || cat.includes("globe"))
-        return "Globe";
-
-    if (cat.includes("khoa học") || cat.includes("science") || cat.includes("vật lý") || cat.includes("hóa") || cat.includes("physics") || cat.includes("chemistry") || cat.includes("microscope"))
-        return "Microscope";
-
-    if (cat.includes("toán") || cat.includes("math") || cat.includes("thống kê") || cat.includes("statistics") || cat.includes("calculator"))
-        return "Calculator";
-
-    if (cat.includes("y tế") || cat.includes("sinh học") || cat.includes("biology") || cat.includes("health") || cat.includes("y học") || cat.includes("pulse"))
-        return "HeartPulse";
-
-    if (cat.includes("kinh") || cat.includes("business") || cat.includes("tài chính") || cat.includes("finance") || cat.includes("economics") || cat.includes("chart"))
-        return "TrendingUp";
-
-    if (cat.includes("âm nhạc") || cat.includes("music") || cat.includes("nghệ thuật") || cat.includes("art"))
-        return "Music";
-
-    return "Tag";
-}
+import { CATEGORY_TRANSLATIONS, getBestIcon, normalizeString, generateSlug } from '@/utils/categoryUtils';
 
 // Function to extract color keyword from categoryColor.ts output
 function extractColorKeyword(colorClass: string): string {
     if (colorClass.includes('blue')) return 'blue';
-    if (colorClass.includes('green')) return 'emerald'; // mapping green to emerald for better look? Or 'green'
+    if (colorClass.includes('green')) return 'emerald';
     if (colorClass.includes('amber')) return 'amber';
     if (colorClass.includes('purple')) return 'purple';
     if (colorClass.includes('cyan')) return 'cyan';
@@ -69,25 +15,6 @@ function extractColorKeyword(colorClass: string): string {
     if (colorClass.includes('orange')) return 'orange';
     if (colorClass.includes('indigo')) return 'indigo';
     return 'slate';
-}
-
-function normalizeString(str: string): string {
-    return str
-        .trim()
-        .toLowerCase()
-        .replace(/\s+/g, ' ');
-}
-
-function generateSlug(name: string): string {
-    return name
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[đĐ]/g, 'd')
-        .replace(/([^0-9a-z-\s])/g, '')
-        .replace(/(\s+)/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-+|-+$/g, '');
 }
 
 export async function POST() {
@@ -125,9 +52,40 @@ export async function POST() {
         }
 
         const categoryMap = new Map<string, any>();
+        const categoriesToFix: any[] = [];
+        let updatedIconsCount = 0;
+
         allCategories?.forEach(cat => {
             categoryMap.set(cat.slug, cat);
+
+            // SPECIAL POLISH: Aggressively check for better semantic icons and translations
+            const normalizedName = normalizeString(cat.name);
+            const translatedName = CATEGORY_TRANSLATIONS[normalizedName];
+            const bestIcon = getBestIcon(translatedName || cat.name);
+
+            // Don't mess with "Chưa phân loại" default icon
+            const isUncategorized = cat.slug === 'chua-phan-loai';
+
+            const needsNameFix = translatedName && cat.name !== translatedName;
+            const needsIconFix = !isUncategorized && cat.icon !== bestIcon;
+
+            if (needsNameFix || needsIconFix) {
+                categoriesToFix.push({
+                    id: cat.id,
+                    name: translatedName || cat.name,
+                    icon: bestIcon
+                });
+                if (needsIconFix) updatedIconsCount++;
+            }
         });
+
+        // Apply fixes to existing categories if any
+        if (categoriesToFix.length > 0) {
+            console.log(`Migration: Fixing metadata for ${categoriesToFix.length} existing categories.`);
+            await Promise.all(categoriesToFix.map(c =>
+                supabase.from('categories').update({ name: c.name, icon: c.icon }).eq('id', c.id)
+            ));
+        }
 
         // 3. Identify sets to migrate (including those stuck in 'Chưa phân loại' which have actual names)
         const fallbackCat = categoryMap.get(generateSlug('Chưa phân loại'));
@@ -177,7 +135,7 @@ export async function POST() {
             for (const [slug, translatedName] of Array.from(missingCategoriesBySlug.entries())) {
                 // Determine final properties
                 let finalName = translatedName;
-                let icon = getCategoryIcon(translatedName);
+                let icon = getBestIcon(translatedName);
                 let colorClass = getCategoryColor(translatedName);
                 let colorKeyword = extractColorKeyword(colorClass);
 
@@ -295,9 +253,10 @@ export async function POST() {
 
         return NextResponse.json({
             message: 'Autonomous synchronization completed',
-            summary: `Đã xử lý ${sets.length} bản ghi. Đã sửa ${fixedNamesCount} lỗi tên, đã thêm ${newCategoriesInserted} danh mục mới.`,
+            summary: `Đã xử lý ${sets.length} bài học. Đã sửa ${fixedNamesCount} lỗi tên, thêm ${newCategoriesInserted} danh mục mới và nâng cấp ${updatedIconsCount} biểu tượng (icon).`,
             newCategoriesCount: newCategoriesInserted,
             fixedNamesCount: fixedNamesCount,
+            updatedIconsCount: updatedIconsCount,
             setsUpdatedCount: updatedCount,
             totalSetsScanned: sets.length
         });

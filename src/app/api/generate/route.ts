@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { Flashcard } from "@/types/flashcard";
 import { createClient } from "@/utils/supabase/server";
+import { CATEGORY_TRANSLATIONS, getBestIcon, normalizeString, generateSlug } from "@/utils/categoryUtils";
 
 export const runtime = "edge";
 export const dynamic = 'force-dynamic';
@@ -187,33 +188,6 @@ export async function POST(req: Request) {
 const ICONS = ["Tag", "Code", "Brain", "Heart", "Globe", "Microscope", "BookOpen", "Cpu", "Briefcase", "Music", "Languages", "Calculator", "Palette", "TrendingUp", "Zap"];
 const COLORS = ["blue", "emerald", "amber", "purple", "cyan", "rose", "pink", "orange", "indigo", "slate"];
 
-function generateSlug(name: string): string {
-    return name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd').replace(/([^0-9a-z-\s])/g, '').replace(/(\s+)/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
-}
-
-const CATEGORY_TRANSLATIONS: Record<string, string> = {
-    "science": "Khoa học",
-    "math": "Toán học",
-    "mathematics": "Toán học",
-    "literature": "Văn học",
-    "history": "Lịch sử",
-    "geography": "Địa lý",
-    "programming": "Lập trình",
-    "technology": "Công nghệ",
-    "tech": "Công nghệ",
-    "business": "Kinh doanh",
-    "health": "Sức khỏe",
-    "medicine": "Y tế",
-    "language": "Ngôn ngữ",
-    "languages": "Ngôn ngữ",
-    "art": "Nghệ thuật",
-    "music": "Âm nhạc"
-};
-
-function normalizeString(str: string): string {
-    return str.trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
 async function resolveCategoryId(supabase: any, categoryName: string | null): Promise<{ id: string, name: string } | null> {
     if (!categoryName || categoryName.trim() === '') return null;
 
@@ -243,7 +217,7 @@ async function resolveCategoryId(supabase: any, categoryName: string | null): Pr
     }
 
     // Insert new category
-    const randomIcon = ICONS[Math.floor(Math.random() * ICONS.length)];
+    const bestIcon = getBestIcon(translatedName);
     const randomColor = COLORS[Math.floor(Math.random() * COLORS.length)];
 
     // Use translatedName if we are creating new
@@ -254,7 +228,7 @@ async function resolveCategoryId(supabase: any, categoryName: string | null): Pr
         .insert([{
             name: finalName,
             slug: slug,
-            icon: slug === 'chua-phan-loai' ? 'Tag' : randomIcon,
+            icon: slug === 'chua-phan-loai' ? 'Tag' : bestIcon,
             color: slug === 'chua-phan-loai' ? 'slate' : randomColor
         }])
         .select('id')

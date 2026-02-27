@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Category } from "@/types/flashcard";
 import { CategoryBadge } from "./CategoryBadge";
 import { COLOR_MAP } from "@/utils/categoryColor";
+import { getBestIcon, generateSlug } from "@/utils/categoryUtils";
 
 export default function CategoriesAdmin({ supabase }: { supabase: any }) {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -37,12 +38,14 @@ export default function CategoriesAdmin({ supabase }: { supabase: any }) {
     fetchCategories();
   }, [fetchCategories]);
 
-  const generateSlug = (name: string) => {
-    return name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd').replace(/([^0-9a-z-\s])/g, '').replace(/(\s+)/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
-  };
-
   const handleNameChange = (val: string) => {
     setFormData((prev: any) => ({ ...prev, name: val, slug: generateSlug(val) }));
+  };
+
+  const handleSuggestIcon = () => {
+    if (!formData.name) return;
+    const suggested = getBestIcon(formData.name);
+    setFormData((prev: any) => ({ ...prev, icon: suggested }));
   };
 
   const handleEdit = (cat: Category) => {
@@ -125,8 +128,14 @@ export default function CategoriesAdmin({ supabase }: { supabase: any }) {
     }
   };
 
-  // Common icons for fast pick
-  const commonIcons = ["Tag", "Code", "Brain", "Heart", "Globe", "Microscope", "BookOpen", "Cpu", "Briefcase", "Music", "Languages", "Calculator", "Palette"];
+  // Common icons for fast pick (Total: 28)
+  const commonIcons = [
+    "Tag", "LayoutGrid", "Code", "Brain", "HeartPulse", "Globe", "Microscope", 
+    "BookOpen", "Cpu", "Briefcase", "Music", "Languages", "Calculator", "Palette", 
+    "History", "GraduationCap", "TrendingUp", "Beaker", "Atom", "Rocket", 
+    "Banknote", "Stethoscope", "Utensils", "Dumbbell", "Lightbulb", "Landmark", 
+    "Zap", "Sparkles"
+  ];
 
   if (loading) {
     return <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin text-indigo-400" /></div>;
@@ -172,7 +181,15 @@ export default function CategoriesAdmin({ supabase }: { supabase: any }) {
           </div>
 
           <div>
-             <label className="block text-sm font-medium text-slate-300 mb-2">Icon</label>
+             <div className="flex justify-between items-center mb-2">
+                <label className="block text-sm font-medium text-slate-300">Icon</label>
+                <button 
+                  onClick={handleSuggestIcon}
+                  className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 bg-indigo-500/10 px-2 py-1 rounded-md transition-colors"
+                >
+                  <RefreshCw className="w-3 h-3" /> Gợi ý Icon
+                </button>
+             </div>
              <div className="flex flex-wrap gap-2">
                 {commonIcons.map(ic => {
                   const IconComp = (LucideIcons as any)[ic] || LucideIcons.Tag;
@@ -183,7 +200,7 @@ export default function CategoriesAdmin({ supabase }: { supabase: any }) {
                   );
                 })}
              </div>
-             <p className="text-xs text-slate-500 mt-2">Gợi ý. Bạn cũng có thể nhập tên Icon từ lucide-react nếu biết rõ.</p>
+             <p className="text-xs text-slate-500 mt-2">Gợi ý. Hệ thống sẽ tự động chọn Icon phù hợp nhất nếu bạn bấm nút Gợi ý.</p>
           </div>
 
           <div>
