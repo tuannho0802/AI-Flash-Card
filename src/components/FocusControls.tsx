@@ -18,6 +18,7 @@ import {
   RotateCcw,
   AlertTriangle,
   Music,
+  Shuffle,
 } from "lucide-react";
 import { FALLBACK_MOODS, Mood, MoodConfig } from "@/utils/musicConfig";
 import { useFocusMoods } from "@/hooks/useFocusMoods";
@@ -50,6 +51,8 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
   const [showAutoplayTip, setShowAutoplayTip] = useState(false);
   const [poolIndex, setPoolIndex] = useState(0);
   const [allSourcesFailed, setAllSourcesFailed] = useState(false);
+  const [isShuffling, setIsShuffling] = useState(false);
+  const [heartbeatActive, setHeartbeatActive] = useState(false);
 
   // Increment this key whenever we want to force iframe re-mount (on ID rotation)
   const [iframeKey, setIframeKey] = useState(0);
@@ -96,7 +99,8 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
       origin: typeof window !== "undefined" ? window.location.origin : "",
       modestbranding: "1",
       iv_load_policy: "3",
-      enablejsapi: "0",    // Disable JS API — reduces tracking requests uBlock targets
+      enablejsapi: "1",    // Enabled for onReady/onStateChange heartbeat
+      widget_referrer: typeof window !== "undefined" ? window.location.href : "",
       playsinline: "1",
     });
     return `https://www.youtube-nocookie.com/embed/${id}?${params.toString()}`;
@@ -163,21 +167,28 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
     localStorage.setItem("focusMood", activeMoodId);
   }, [activeMoodId, customUrl, currentMood, poolIndex]);
 
-  // --- 6-second fallback timeout for YouTube playback ---
+  // --- 10-second Heartbeat Watchdog for YouTube playback ---
   useEffect(() => {
     if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
+
+    // Reset heartbeat when track changes
+    setHeartbeatActive(false);
+
     if (isPlaying && isYouTubeSource) {
       fallbackTimerRef.current = setTimeout(() => {
-        // Only warn; don't auto-stop. Let user decide.
-        setShowAutoplayTip(true);
-      }, 6000);
+        // Only show alert/tip, NEVER auto-shuffle here
+        if (!heartbeatActive) {
+          setShowAutoplayTip(true);
+        }
+      }, 10000);
     } else {
       setShowAutoplayTip(false);
     }
+
     return () => {
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
     };
-  }, [isPlaying, currentEmbedUrl]);
+  }, [isPlaying, currentEmbedUrl, heartbeatActive]);
 
   // --- Play/Pause ---
   const togglePlay = () => {
@@ -202,40 +213,72 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
   };
 
   const nextMood = () => {
-    // First try rotating within the current mood's pool
-    if (
-      activeMoodId !== "Custom" &&
-      currentMood.type === "youtube_video" &&
-      currentMood.urls.length > 1
-    ) {
-      setPoolIndex((prev) => prev + 1);
-      return;
-    }
-    // Otherwise move to next mood
     const currentIndex = moods.findIndex((m: MoodConfig) => m.id === activeMoodId);
     let nextIndex = (currentIndex + 1) % moods.length;
     if (moods[nextIndex].id === "Silence") nextIndex = (nextIndex + 1) % moods.length;
     setActiveMoodId(moods[nextIndex].id);
     setPoolIndex(0);
     setAllSourcesFailed(false);
+    setHeartbeatActive(false);
   };
 
-  // Called by the iframe's onError — silently rotates to the next ID in the pool
+  const handleShuffle = () => {
+    if (activeMoodId === "Silence") return;
+    setIsShuffling(true);
+
+    // If it's a YouTube mood with multiple tracks, rotate the pool
+    if (activeMoodId !== "Custom" && currentMood.type === "youtube_video" && currentMood.urls.length > 1) {
+      setPoolIndex((prev) => (prev + 1) % currentMood.urls.length);
+    } else {
+      // Just re-mount the same track or do nothing special for single sources
+      setIframeKey(k => k + 1);
+    }
+
+    setHeartbeatActive(false);
+    setAllSourcesFailed(false);
+    setErrorMessage(null);
+    setIsPlaying(true);
+
+    setTimeout(() => setIsShuffling(false), 800);
+  };
+
+  // Called by the iframe's onError or Heartbeat Timeout
   const handleIframeError = () => {
-    if (activeMoodId === "Custom") return; // Don't rotate custom URLs automatically
+    if (activeMoodId === "Custom") {
+      setShowAutoplayTip(true);
+      return;
+    }
     const pool = currentMood.urls;
     const nextIndex = poolIndex + 1;
     if (nextIndex < pool.length) {
-      // Silently switch to next ID — user won't notice
       setPoolIndex(nextIndex);
-      setIframeKey((k) => k + 1); // Force iframe re-mount
+      setIframeKey((k) => k + 1);
+      setHeartbeatActive(false);
     } else {
-      // All IDs in this mood's pool are exhausted
       setAllSourcesFailed(true);
       setIsPlaying(false);
-      setErrorMessage(`Tất cả nguồn nhạc của "${currentMood.label}" không khả dụng. Hãy thử Mood khác.`);
+      setErrorMessage(`Gặp lỗi khi phát nhạc. Vui lòng kiểm tra trình chặn quảng cáo.`);
     }
   };
+
+  useEffect(() => {
+    const handleYTMessage = (event: MessageEvent) => {
+      if (event.origin !== "https://www.youtube-nocookie.com") return;
+      try {
+        const data = JSON.parse(event.data);
+        if (data.event === "onStateChange" && data.info === 1) {
+          setHeartbeatActive(true);
+          setShowAutoplayTip(false);
+        }
+        if (data.event === "onReady") {
+          setHeartbeatActive(true);
+        }
+      } catch (e) { }
+    };
+    window.addEventListener("message", handleYTMessage);
+    return () => window.removeEventListener("message", handleYTMessage);
+  }, []);
+
 
   // --- Pomodoro ---
   const toggleTimer = () => setTimerActive((t) => !t);
@@ -378,12 +421,16 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
           }}
         >
           <iframe
-            key={`${currentEmbedUrl}-${iframeKey}`}  // Rotates on ID failover
+            key={`${currentEmbedUrl}-${iframeKey}`}
             width="300"
             height="200"
             src={currentEmbedUrl}
             allow="autoplay"
             title="focus-ambient-player"
+            onLoad={() => {
+              // Initial load heartbeat after 2s grace
+              setTimeout(() => setHeartbeatActive(true), 2000);
+            }}
             onError={handleIframeError}
           />
         </div>
@@ -396,36 +443,26 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
-            className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-4 py-3 rounded-xl text-xs font-bold shadow-2xl z-[120] border backdrop-blur-md flex flex-col items-center gap-2 text-center max-w-[300px] ${showAutoplayTip
-              ? "bg-amber-500/90 border-amber-400 text-amber-950"
-              : "bg-rose-500/90 border-rose-400 text-white"
+            className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-4 py-2 rounded-xl text-[10px] font-bold shadow-xl z-[120] border backdrop-blur-md flex flex-col items-center gap-1.5 text-center max-w-[260px] ${showAutoplayTip
+              ? "bg-slate-900/90 border-amber-500/50 text-amber-200"
+              : "bg-slate-900/90 border-rose-500/50 text-rose-200"
               }`}
           >
             {showAutoplayTip ? (
               <>
-                <div className="flex items-center gap-1.5">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                  <p>Âm nhạc đang gặp chút trục trặc do trình chặn quảng cáo.</p>
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-3 h-3 text-amber-500" />
+                  <p className="opacity-80">Nhạc đang bị chặn. Hãy nhấn phát lại.</p>
                 </div>
                 <button
-                  onClick={() => { setShowAutoplayTip(false); setIsPlaying(false); setTimeout(togglePlay, 200); }}
-                  className="px-4 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg border border-white/20 transition-colors"
+                  onClick={() => { setShowAutoplayTip(false); setIsPlaying(false); setTimeout(togglePlay, 100); }}
+                  className="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 rounded-lg border border-amber-500/30 transition-colors text-[9px] uppercase tracking-wider"
                 >
-                  Nhấn để phát lại
+                  Phát lại
                 </button>
               </>
             ) : (
-              <>
-                <p>{errorMessage}</p>
-                {errorCount >= 2 && activeMoodId !== "Custom" && (
-                  <button
-                    onClick={trySecondarySource}
-                    className="mt-1 flex items-center gap-1.5 px-3 py-1 bg-white/20 hover:bg-white/30 rounded-lg border border-white/20 transition-colors"
-                  >
-                    <RefreshCcw className="w-3 h-3" /> Thử nguồn dự phòng
-                  </button>
-                )}
-              </>
+                <p className="opacity-80">{errorMessage}</p>
             )}
           </motion.div>
         )}
@@ -555,10 +592,26 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
                 {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
               </button>
 
-              {/* Skip / Next */}
+              {/* Shuffle / Next Track */}
+              <button
+                onClick={handleShuffle}
+                disabled={activeMoodId === "Silence"}
+                className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all active:scale-95 group/shuffle"
+                title="Chuyển nguồn nhạc ngẫu nhiên"
+              >
+                <motion.div
+                  animate={isShuffling ? { rotate: 360 } : { rotate: 0 }}
+                  transition={{ duration: 0.5, ease: "easeInOut" }}
+                >
+                  <Shuffle className="w-4 h-4" />
+                </motion.div>
+              </button>
+
+              {/* Next Mood */}
               <button
                 onClick={nextMood}
                 className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all active:scale-95"
+                title="Chuyển Mood tiếp theo"
               >
                 <SkipForward className="w-4 h-4" />
               </button>

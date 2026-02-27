@@ -30,6 +30,7 @@ import { getCategoryColor } from "@/utils/categoryColor";
 import { CategoryBadge } from "@/components/CategoryBadge";
 import AppSidebar, { SidebarTab } from "@/components/AppSidebar";
 import CategoriesAdmin from "@/components/CategoriesAdmin";
+import FocusModesAdmin from "@/components/FocusModesAdmin";
 import FocusControls from "@/components/FocusControls";
 
 import GridMode from "@/components/display-modes/GridMode";
@@ -756,6 +757,11 @@ function FlashcardsApp() {
         {/* ─── CATEGORIES ADMIN ─────────────────────────────────────────────────────── */}
         {activeTab === "categories" && isAdmin && (
           <CategoriesAdmin supabase={supabase} />
+        )}
+
+        {/* ─── FOCUS MODES ADMIN ────────────────────────────────────────────────────── */}
+        {activeTab === "focus-modes" && isAdmin && (
+          <FocusModesAdmin />
         )}
       </div>
 

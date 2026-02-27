@@ -1,9 +1,9 @@
 "use client";
 
-import { Home, BarChart2, Library, Shield, X, BrainCircuit, Menu, Tags } from "lucide-react";
+import { Home, BarChart2, Library, Shield, X, BrainCircuit, Menu, Tags, Music } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
-export type SidebarTab = "home" | "analytics" | "library" | "admin" | "categories";
+export type SidebarTab = "home" | "analytics" | "library" | "admin" | "categories" | "focus-modes";
 
 interface AppSidebarProps {
   activeTab: SidebarTab;
@@ -140,6 +140,14 @@ function SidebarContent({
               isActive={activeTab === "categories"}
               isAdmin
               onClick={() => navigate("categories")}
+              isCollapsed={isCollapsed}
+            />
+            <NavItem
+              icon={Music}
+              label="Quản lý Focus Mode"
+              isActive={activeTab === "focus-modes"}
+              isAdmin
+              onClick={() => navigate("focus-modes")}
               isCollapsed={isCollapsed}
             />
           </>
