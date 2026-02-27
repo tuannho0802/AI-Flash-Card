@@ -99,40 +99,42 @@ export default function DisplayController({
           />
         </motion.button>
 
-        <motion.button
-          variants={itemVariants}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={onGenerateNew}
-          disabled={loadingNew}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-linear-to-r from-indigo-500 to-purple-500 text-white font-medium shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/40 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {loadingNew ? (
-            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-          ) : (
-            <Sparkles className="w-4 h-4" />
-          )}
-          <span>
-            {loadingNew
-              ? "Generating..."
-              : "Generate New"}
-          </span>
-        </motion.button>
-
-        <motion.button
-          variants={itemVariants}
-          whileHover={{
-            scale: 1.05,
-            backgroundColor:
-              "rgba(30, 41, 59, 0.8)",
-          }}
-          whileTap={{ scale: 0.95 }}
-          onClick={onShuffle}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-slate-300 hover:text-white transition-colors"
-        >
-          <Shuffle className="w-4 h-4" />
-          <span>Shuffle Cards</span>
-        </motion.button>
+        {/* Hide extra actions in Focus Mode to reduce distractions */}
+        {!isFocusMode && (
+          <>
+            <motion.button
+              variants={itemVariants}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={onGenerateNew}
+              disabled={loadingNew}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-linear-to-r from-indigo-500 to-purple-500 text-white font-medium shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/40 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loadingNew ? (
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <Sparkles className="w-4 h-4" />
+              )}
+              <span>
+                {loadingNew ? "Generating..." : "Generate New"}
+              </span>
+            </motion.button>
+    
+            <motion.button
+              variants={itemVariants}
+              whileHover={{
+                scale: 1.05,
+                backgroundColor: "rgba(30, 41, 59, 0.8)",
+              }}
+              whileTap={{ scale: 0.95 }}
+              onClick={onShuffle}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-slate-300 hover:text-white transition-colors"
+            >
+              <Shuffle className="w-4 h-4" />
+              <span>Shuffle Cards</span>
+            </motion.button>
+          </>
+        )}
       </div>
 
       {/* View Modes Group */}

@@ -12,9 +12,17 @@ export default function FlashcardCard({
   card,
   index = 0,
   className = "",
-}: FlashcardCardProps) {
-  const [isFlipped, setIsFlipped] =
-    useState(false);
+  isFlipped: controlledFlipped,
+  onFlip,
+}: FlashcardCardProps & { isFlipped?: boolean; onFlip?: (flipped: boolean) => void }) {
+  const [localFlipped, setLocalFlipped] = useState(false);
+  const isFlipped = controlledFlipped !== undefined ? controlledFlipped : localFlipped;
+
+  const handleFlip = () => {
+    const nextState = !isFlipped;
+    if (onFlip) onFlip(nextState);
+    else setLocalFlipped(nextState);
+  };
 
   return (
     <motion.div
@@ -25,7 +33,7 @@ export default function FlashcardCard({
         duration: 0.4,
       }}
       className={`perspective-1000 w-full h-64 cursor-pointer group ${className}`}
-      onClick={() => setIsFlipped(!isFlipped)}
+      onClick={handleFlip}
       whileHover={{ y: -8 }}
     >
       <motion.div

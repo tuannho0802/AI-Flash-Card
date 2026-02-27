@@ -25,19 +25,21 @@ interface StudyModeProps {
 export default function StudyMode({
   flashcards,
 }: StudyModeProps) {
-  const [currentIndex, setCurrentIndex] =
-    useState(0);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isCardFlipped, setIsCardFlipped] = useState(false);
   const { markAs } = useLearningProgress();
 
   const handleNext = useCallback(() => {
     if (currentIndex < flashcards.length - 1) {
       setCurrentIndex(currentIndex + 1);
+      setIsCardFlipped(false);
     }
   }, [currentIndex, flashcards.length]);
 
   const handlePrev = useCallback(() => {
     if (currentIndex > 0) {
       setCurrentIndex(currentIndex - 1);
+      setIsCardFlipped(false);
     }
   }, [currentIndex]);
 
@@ -45,19 +47,22 @@ export default function StudyMode({
     if (currentIndex >= 0 && currentIndex < flashcards.length) {
       markAs(flashcards[currentIndex].front, difficulty);
       if (currentIndex < flashcards.length - 1) {
-        // Add a small delay for visual feedback if needed, but prompt said "Auto slide"
         setCurrentIndex((prev) => prev + 1);
+        setIsCardFlipped(false);
       }
     }
   }, [currentIndex, flashcards, markAs]);
 
   // Keyboard navigation
   useEffect(() => {
-    const handleKeyDown = (
-      e: KeyboardEvent,
-    ) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName || "")) return;
       if (e.key === "ArrowRight") handleNext();
       if (e.key === "ArrowLeft") handlePrev();
+      if (e.code === "Space") {
+        e.preventDefault();
+        setIsCardFlipped((prev) => !prev);
+      }
       // Optional: Add shortcuts for Easy/Medium/Hard (e.g., 1, 2, 3)
       if (e.key === "1") handleRate("easy");
       if (e.key === "2") handleRate("medium");
@@ -127,6 +132,8 @@ export default function StudyMode({
             <FlashcardCard
               card={flashcards[currentIndex]}
               className="h-full! text-2xl"
+              isFlipped={isCardFlipped}
+              onFlip={setIsCardFlipped}
             />
           </motion.div>
         </AnimatePresence>

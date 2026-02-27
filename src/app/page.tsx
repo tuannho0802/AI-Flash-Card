@@ -30,6 +30,7 @@ import { getCategoryColor } from "@/utils/categoryColor";
 import { CategoryBadge } from "@/components/CategoryBadge";
 import AppSidebar, { SidebarTab } from "@/components/AppSidebar";
 import CategoriesAdmin from "@/components/CategoriesAdmin";
+import FocusControls from "@/components/FocusControls";
 
 import GridMode from "@/components/display-modes/GridMode";
 import StudyMode from "@/components/display-modes/StudyMode";
@@ -142,8 +143,8 @@ function FlashcardsApp() {
       if (filterCategory && s.category !== filterCategory) return false;
       const low = searchTerm.toLowerCase();
       const match = s.topic.toLowerCase().includes(low) ||
-                   s.normalized_topic.toLowerCase().includes(low) ||
-                   (s.aliases || []).some(a => a.toLowerCase().includes(low));
+        s.normalized_topic.toLowerCase().includes(low) ||
+        (s.aliases || []).some(a => a.toLowerCase().includes(low));
       if (!match) return false;
       if (showHardOnly) return s.cards.some(c => progress[c.front]?.difficulty === "hard");
       return true;
@@ -152,15 +153,15 @@ function FlashcardsApp() {
 
   const analyticsData = useMemo(() => {
     const totalCards = recentSets.reduce((sum, s) => sum + s.cards.length, 0);
-    
+
     // Grouping by ID to prevent text-based duplicates (e.g., "Lịch sử" vs "lịch sử")
     const categoryInfoMap = new Map<string, { count: number, name: string, category: any }>();
-    
+
     recentSets.forEach(s => {
       // Use category_id as primary key, fallback to a special key for unlinked sets
       const groupKey = s.category_id || "UNCATEGORIZED";
       const existing = categoryInfoMap.get(groupKey);
-      
+
       if (existing) {
         existing.count += s.cards.length;
         // If we found a set with the actual categories relation, use it for metadata
@@ -169,10 +170,10 @@ function FlashcardsApp() {
           existing.name = s.categories.name;
         }
       } else {
-        categoryInfoMap.set(groupKey, { 
-          count: s.cards.length, 
+        categoryInfoMap.set(groupKey, {
+          count: s.cards.length,
           name: s.categories?.name || s.category || "Chưa phân loại",
-          category: s.categories || null 
+          category: s.categories || null
         });
       }
     });
@@ -453,8 +454,22 @@ function FlashcardsApp() {
 
             {/* Flashcard Display */}
             {flashcards.length > 0 && (
-              <div className={isFocusMode ? "fixed inset-0 z-[100] bg-slate-900/95 flex flex-col p-4 animate-in fade-in" : "space-y-6"}>
-                <div className="flex justify-between items-center bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm">
+              <div className={isFocusMode ? "fixed inset-0 z-[100] bg-slate-950 flex flex-col p-4 md:p-8 animate-in fade-in duration-500 overflow-hidden" : "space-y-6"}>
+                {isFocusMode && (
+                  <>
+                    {/* Animated Ambient Background */}
+                    <div className="absolute top-0 left-0 w-full h-full overflow-hidden -z-10 pointer-events-none">
+                      <div className="absolute -top-[20%] -left-[10%] w-[70vw] h-[70vw] rounded-full bg-indigo-900/20 blur-[120px] mix-blend-screen animate-[spin_20s_linear_infinite]" />
+                      <div className="absolute bottom-[10%] -right-[10%] w-[60vw] h-[60vw] rounded-full bg-purple-900/20 blur-[120px] mix-blend-screen animate-[spin_25s_linear_infinite_reverse]" />
+                    </div>
+
+                    <FocusControls
+                      isFocusMode={isFocusMode}
+                      onExitFocus={() => setIsFocusMode(false)}
+                    />
+                  </>
+                )}
+                <div className={isFocusMode ? "flex justify-between items-center bg-white/5 backdrop-blur-xl border border-white/10 p-4 rounded-2xl shadow-2xl mb-6 relative z-10" : "flex justify-between items-center bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm"}>
                   <div className={isFocusMode ? "hidden" : "flex items-center gap-2"}>
                     <BrainCircuit className="text-indigo-400" />
                     <div>
@@ -462,7 +477,7 @@ function FlashcardsApp() {
                       <p className="text-xs text-slate-500">{flashcards.length} cards</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className={isFocusMode ? "flex items-center gap-4" : "flex items-center gap-3"}>
                     {savedSuccess && <span className="text-emerald-400 text-xs font-bold px-3 py-1 bg-emerald-500/10 rounded-full border border-emerald-500/20">SAVED</span>}
                     <DisplayController
                       currentMode={mode}
@@ -475,7 +490,7 @@ function FlashcardsApp() {
                     />
                   </div>
                 </div>
-                <div className="flex-1 h-full min-h-[400px]">
+                <div className={`flex-1 relative z-10 flex flex-col ${isFocusMode ? "h-full bg-white/5 backdrop-blur-3xl border border-white/10 rounded-3xl shadow-2xl p-4 md:p-8 overflow-y-auto" : "h-full min-h-[400px]"}`}>
                   {mode === "grid" && <GridMode flashcards={flashcards} />}
                   {mode === "study" && <StudyMode flashcards={flashcards} />}
                   {mode === "list" && <ListMode flashcards={flashcards} />}
@@ -577,7 +592,7 @@ function FlashcardsApp() {
                         <div className="text-xs text-slate-500">
                           {s.cards.length} cards • {new Date(s.created_at).toLocaleDateString()}
                         </div>
-                        <div className="scale-90 origin-right">
+                        <div className="shrink-0">
                           <CategoryBadge category={s.categories} fallbackName={s.category} />
                         </div>
                       </div>
@@ -615,18 +630,18 @@ function FlashcardsApp() {
               ) : analyticsData.byCategory.map((item) => {
                 const percentage = Math.round((item.count / (analyticsData.totalCards || 1)) * 100);
                 const colorKey = item.category?.color || (item.name === "Chưa phân loại" ? "slate" : "indigo");
-                
+
                 const barColorClass = colorKey === "blue" ? "from-blue-600 to-blue-400"
                   : colorKey === "emerald" ? "from-emerald-600 to-emerald-400"
-                  : colorKey === "amber" ? "from-amber-600 to-amber-400"
-                  : colorKey === "purple" ? "from-purple-600 to-purple-400"
-                  : colorKey === "cyan" ? "from-cyan-600 to-cyan-400"
-                  : colorKey === "rose" ? "from-rose-600 to-rose-400"
-                  : colorKey === "pink" ? "from-pink-600 to-pink-400"
-                  : colorKey === "orange" ? "from-orange-600 to-orange-400"
-                  : colorKey === "indigo" ? "from-indigo-600 to-indigo-400"
-                  : colorKey === "green" ? "from-green-600 to-green-400"
-                  : "from-slate-600 to-slate-500";
+                    : colorKey === "amber" ? "from-amber-600 to-amber-400"
+                      : colorKey === "purple" ? "from-purple-600 to-purple-400"
+                        : colorKey === "cyan" ? "from-cyan-600 to-cyan-400"
+                          : colorKey === "rose" ? "from-rose-600 to-rose-400"
+                            : colorKey === "pink" ? "from-pink-600 to-pink-400"
+                              : colorKey === "orange" ? "from-orange-600 to-orange-400"
+                                : colorKey === "indigo" ? "from-indigo-600 to-indigo-400"
+                                  : colorKey === "green" ? "from-green-600 to-green-400"
+                                    : "from-slate-600 to-slate-500";
 
                 return (
                   <div key={item.category?.id || item.name}>
@@ -677,7 +692,7 @@ function FlashcardsApp() {
                   <div className="font-semibold text-slate-200 group-hover:text-indigo-400 break-words leading-snug mb-3">{s.topic}</div>
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-slate-500">{s.cards.length} cards</span>
-                    <div className="scale-90 origin-right">
+                    <div className="shrink-0">
                       <CategoryBadge category={s.categories} fallbackName={s.category} />
                     </div>
                   </div>

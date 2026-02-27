@@ -21,7 +21,7 @@ export function CategoryBadge({ category, fallbackName }: CategoryBadgeProps) {
 
   // Get color classes
   const colorParams = COLOR_MAP[colorKey] || COLOR_MAP['slate'];
-  const baseClasses = `inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border duration-300`;
+  const baseClasses = `inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border duration-300 whitespace-nowrap`;
   const colorClasses = `${colorParams.bg} ${colorParams.text} ${colorParams.border}`;
 
   // Get icon component dynamically. Must explicitly cast as any or React.ElementType to prevent generic TS issues.
