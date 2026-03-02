@@ -23,7 +23,7 @@ import {
   Menu,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { createClient } from "@/utils/supabase/client";
+import { supabase } from "@/lib/supabase";
 import { Flashcard, FlashcardSet } from "@/types/flashcard";
 import { useLearningProgress } from "@/hooks/useLearningProgress";
 import { getCategoryColor } from "@/utils/categoryColor";
@@ -51,7 +51,6 @@ export default function Home() {
 }
 
 function FlashcardsApp() {
-  const [supabase] = useState(() => createClient());
   const [topic, setTopic] = useState("");
   const [flashcards, setFlashcards] = useState<Flashcard[]>([]);
   const [loading, setLoading] = useState(false);

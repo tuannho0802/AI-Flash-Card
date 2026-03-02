@@ -4,7 +4,7 @@ import {
   useState,
   useCallback,
 } from "react";
-import { createClient } from "@/utils/supabase/client";
+import { supabase } from "@/lib/supabase";
 import { User } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
 import AvatarUpload from "@/components/AvatarUpload";
@@ -29,7 +29,6 @@ export default function Profile() {
     totalSets: 0,
     totalCards: 0,
   });
-  const supabase = createClient();
   const router = useRouter();
 
   const getProfile = useCallback(async () => {

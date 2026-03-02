@@ -4,7 +4,8 @@ import {
   useState,
   useRef,
 } from "react";
-import { createClient } from "@/utils/supabase/client";
+import { Profile } from "@/types/flashcard";
+import { supabase } from "@/lib/supabase";
 import { User } from "@supabase/supabase-js";
 import {
   LogOut,
@@ -25,7 +26,6 @@ export default function UserDropdown() {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef =
     useRef<HTMLDivElement>(null);
-  const supabase = createClient();
 
   useEffect(() => {
     const getUser = async () => {
@@ -48,7 +48,7 @@ export default function UserDropdown() {
     );
 
     return () => subscription.unsubscribe();
-  }, [supabase]);
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (

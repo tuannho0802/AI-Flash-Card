@@ -49,6 +49,7 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
   const [isShuffling, setIsShuffling] = useState(false);
   const [isLinkDead, setIsLinkDead] = useState(false); // Only true if YT returns an actual error code
   const [poolIndex, setPoolIndex] = useState(0);
+  const [isIframeLoaded, setIsIframeLoaded] = useState(false);
 
 
   // Increment this key whenever we want to force iframe re-mount (on ID rotation)
@@ -87,21 +88,9 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
   // Build optimized embed URL — single video only, no playlists
   const getEmbedUrl = useCallback((id: string | null) => {
     if (!id) return "";
-    // Use URLSearchParams for clean, reliable query string construction
-    const params = new URLSearchParams({
-      autoplay: "1",
-      mute: "0",
-      controls: "0",
-      loop: "1",
-      playlist: id,        // Required for loop=1 to work on single videos
-      origin: typeof window !== "undefined" ? window.location.origin : "",
-      modestbranding: "1",
-      iv_load_policy: "3",
-      enablejsapi: "1",    // Enabled for onReady/onStateChange heartbeat
-      widget_referrer: typeof window !== "undefined" ? window.location.href : "",
-      playsinline: "1",
-    });
-    return `https://www.youtube-nocookie.com/embed/${id}?${params.toString()}`;
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    // Template string for absolute control over origin formatting
+    return `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=0&controls=0&loop=1&playlist=${id}&enablejsapi=1&origin=${origin}&widget_referrer=${origin}&playsinline=1&modestbranding=1&iv_load_policy=3`;
   }, []);
 
   const currentEmbedUrl = getEmbedUrl(currentTrackId);
@@ -136,10 +125,13 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
 
   // --- Sync YouTube Iframe Volume via postMessage ---
   useEffect(() => {
-    // We target nocookie origin for security
+    // Only sync if we are playing, it's a YouTube source, and the iframe is fully loaded
+    if (!isPlaying || !isYouTubeSource || !isIframeLoaded) return;
+
     const targetOrigin = "https://www.youtube-nocookie.com";
 
     const syncVolume = () => {
+      // Hard check for iframe existence and contentWindow
       if (!iframeRef.current?.contentWindow) return;
 
       try {
@@ -155,15 +147,16 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
           targetOrigin
         );
       } catch (err) {
-        // Silent catch for cross-origin or re-mounting hiccups
+        // Silent catch for cross-origin hiccups
       }
     };
 
-    // Initial sync + tiny delay for new iframe mounting
+    // Initial sync + tiny delay for handshake
     syncVolume();
-    const t = setTimeout(syncVolume, 500);
+    const t = setTimeout(syncVolume, 1000);
     return () => clearTimeout(t);
-  }, [volume, isMuted, iframeKey, isPlaying]); // Re-sync on volume shift or track rotation
+  }, [volume, isMuted, iframeKey, isPlaying, isYouTubeSource, isIframeLoaded]);
+
 
   // --- React to mood/source changes ---
   useEffect(() => {
@@ -190,6 +183,7 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
     }
     // YouTube types handled by iframe — nothing extra to do here
     setIframeKey((k) => k + 1);  // New track = new iframe
+    setIsIframeLoaded(false);    // Reset load state for the new iframe
     setIsLinkDead(false);        // Reset on new source
     localStorage.setItem("focusMood", activeMoodId);
   }, [activeMoodId, customUrl, currentMood, poolIndex]);
@@ -405,8 +399,7 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
             src={currentEmbedUrl}
             allow="autoplay"
             title="focus-ambient-player"
-            // onError / onLoad triggers removed to avoid false-positives.
-            // Heartbeat is strictly handled via window 'message' listener checking for PLAYING state.
+            onLoad={() => setIsIframeLoaded(true)}
           />
         </div>
       )}

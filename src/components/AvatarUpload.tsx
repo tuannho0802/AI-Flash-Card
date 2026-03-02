@@ -5,7 +5,7 @@ import React, {
   useState,
 } from "react";
 import Image from "next/image";
-import { createClient } from "@/utils/supabase/client";
+import { supabase } from "@/lib/supabase";
 import { Camera, Loader2 } from "lucide-react";
 
 export default function AvatarUpload({
@@ -18,8 +18,7 @@ export default function AvatarUpload({
   url: string | null;
   size: number;
   onUpload: (url: string) => void;
-}) {
-  const supabase = createClient();
+  }) {
   const [avatarUrl, setAvatarUrl] = useState<
     string | null
   >(null);

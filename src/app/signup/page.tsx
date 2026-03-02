@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@/utils/supabase/client";
+import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 import {
   UserPlus,
@@ -21,7 +21,6 @@ export default function SignUpPage() {
     string | null
   >(null);
   const [success, setSuccess] = useState(false);
-  const supabase = createClient();
 
   const handleSignUp = async (
     e: React.FormEvent,

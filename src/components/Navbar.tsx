@@ -3,12 +3,11 @@ import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import UserDropdown from "./UserDropdown";
 import { Profile } from "@/types/flashcard";
-import { createClient } from "@/utils/supabase/client";
+import { supabase } from "@/lib/supabase";
 import { useEffect, useState } from "react";
 
 export default function Navbar() {
   const [profile, setProfile] = useState<Profile | null>(null);
-  const supabase = createClient();
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -36,7 +35,7 @@ export default function Navbar() {
     });
 
     return () => subscription.unsubscribe();
-  }, [supabase]);
+  }, []);
 
   return (
     <nav className="fixed top-0 left-0 right-0 h-16 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 z-50">
