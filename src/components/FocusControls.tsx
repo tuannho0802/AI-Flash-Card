@@ -55,6 +55,7 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
   const [iframeKey, setIframeKey] = useState(0);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const fallbackTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hasRestored = useRef(false);
@@ -126,12 +127,43 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
     hasRestored.current = true;
   }, [moods]);
 
-  // --- Sync audio element volume ---
+  // --- Sync audio element volume (MP3) ---
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.volume = isMuted ? 0 : volume;
     }
   }, [volume, isMuted]);
+
+  // --- Sync YouTube Iframe Volume via postMessage ---
+  useEffect(() => {
+    // We target nocookie origin for security
+    const targetOrigin = "https://www.youtube-nocookie.com";
+
+    const syncVolume = () => {
+      if (!iframeRef.current?.contentWindow) return;
+
+      try {
+        // 1. Set Volume (0-100)
+        iframeRef.current.contentWindow.postMessage(
+          JSON.stringify({ event: "command", func: "setVolume", args: [volume * 100] }),
+          targetOrigin
+        );
+
+        // 2. Set Mute/Unmute
+        iframeRef.current.contentWindow.postMessage(
+          JSON.stringify({ event: "command", func: isMuted ? "mute" : "unMute", args: [] }),
+          targetOrigin
+        );
+      } catch (err) {
+        // Silent catch for cross-origin or re-mounting hiccups
+      }
+    };
+
+    // Initial sync + tiny delay for new iframe mounting
+    syncVolume();
+    const t = setTimeout(syncVolume, 500);
+    return () => clearTimeout(t);
+  }, [volume, isMuted, iframeKey, isPlaying]); // Re-sync on volume shift or track rotation
 
   // --- React to mood/source changes ---
   useEffect(() => {
@@ -366,6 +398,7 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
           }}
         >
           <iframe
+            ref={iframeRef}
             key={`${currentEmbedUrl}-${iframeKey}`}
             width="300"
             height="200"
