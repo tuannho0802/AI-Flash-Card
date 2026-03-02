@@ -200,7 +200,7 @@ export default function AppSidebar(props: AppSidebarProps) {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={props.onMobileClose}
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] md:hidden"
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[190] md:hidden"
             />
             <motion.aside
               key="drawer"
@@ -208,7 +208,7 @@ export default function AppSidebar(props: AppSidebarProps) {
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
               transition={{ type: "spring", stiffness: 300, damping: 30 }}
-              className="fixed left-0 top-0 bottom-0 w-64 z-[210] bg-slate-900 border-r border-slate-800 flex flex-col md:hidden"
+              className="fixed left-0 top-0 bottom-0 w-64 z-[200] bg-slate-900 border-r border-slate-800 flex flex-col md:hidden"
             >
               <SidebarContent {...props} isCollapsed={false} onClose={props.onMobileClose} />
             </motion.aside>

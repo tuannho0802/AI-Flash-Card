@@ -20,7 +20,6 @@ import {
   Filter,
   ChevronDown,
   Edit2,
-  Menu,
   Trash2,
   Eye,
   ShieldCheck,
@@ -116,6 +115,13 @@ function FlashcardsApp() {
     });
     return () => subscription.unsubscribe();
   }, [supabase]);
+
+  // ── Mobile Sidebar Event Listener ──────────────────────────────────────────
+  useEffect(() => {
+    const handleOpenMobileSidebar = () => setIsMobileSidebarOpen(true);
+    window.addEventListener("open-mobile-sidebar", handleOpenMobileSidebar);
+    return () => window.removeEventListener("open-mobile-sidebar", handleOpenMobileSidebar);
+  }, []);
 
   useEffect(() => {
     const saved = localStorage.getItem("displayMode") as DisplayMode;
@@ -519,14 +525,6 @@ function FlashcardsApp() {
         }}
       />
 
-      {/* Mobile Hamburger */}
-      <button
-        onClick={() => setIsMobileSidebarOpen(true)}
-        className="fixed top-3 left-3 z-50 md:hidden p-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-white transition-colors"
-        aria-label="Open navigation"
-      >
-        <Menu className="w-4 h-4" />
-      </button>
 
       {/* ── Scrollable content ─────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto">

@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Menu } from "lucide-react";
 import UserDropdown from "./UserDropdown";
 import { Profile } from "@/types/flashcard";
 import { supabase } from "@/lib/supabase";
@@ -39,11 +39,19 @@ export default function Navbar() {
 
   return (
     <nav className="fixed top-0 left-0 right-0 h-16 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 z-[100]">
-      <div className="max-w-5xl mx-auto px-4 h-full flex items-center justify-between">
-        <Link
-          href="/"
-          className="flex items-center gap-2 group"
-        >
+      <div className="max-w-5xl mx-auto px-4 h-full flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent("open-mobile-sidebar"))}
+            className="md:hidden p-2 -ml-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            aria-label="Open Menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          <Link
+            href="/"
+            className="flex items-center gap-2 group"
+          >
           <div className="w-8 h-8 rounded-lg bg-black flex items-center justify-center text-white group-hover:scale-105 transition-transform">
             <Sparkles className="w-4 h-4" />
           </div>
@@ -56,6 +64,7 @@ export default function Navbar() {
             </span>
           )}
         </Link>
+        </div>
 
         <div className="flex items-center gap-4">
           <UserDropdown />
