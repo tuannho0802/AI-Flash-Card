@@ -21,6 +21,13 @@ import {
   ChevronDown,
   Edit2,
   Menu,
+  Trash2,
+  Eye,
+  ShieldCheck,
+  AlertTriangle,
+  ArrowRight,
+  RefreshCcw,
+  AlertCircle
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabase";
@@ -37,6 +44,7 @@ import GridMode from "@/components/display-modes/GridMode";
 import StudyMode from "@/components/display-modes/StudyMode";
 import ListMode from "@/components/display-modes/ListMode";
 import DisplayController, { DisplayMode } from "@/components/DisplayController";
+import FlashcardSkeleton from "@/components/FlashcardSkeleton";
 
 export default function Home() {
   return (
@@ -81,6 +89,10 @@ function FlashcardsApp() {
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [backfillResult, setBackfillResult] = useState<any>(null);
   const [backfillLoading, setBackfillLoading] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [sanitizeLoading, setSanitizeLoading] = useState(false);
+  const [sanitizeResult, setSanitizeResult] = useState<any>(null);
+  const [sanitizeProgress, setSanitizeProgress] = useState<{ current: number, total: number, topic: string } | null>(null);
 
   const searchParams = useSearchParams();
 
@@ -126,8 +138,10 @@ function FlashcardsApp() {
     } else {
       query = query.is("user_id", null);
     }
+    setLoadingHistory(true);
     const { data } = await query;
     if (data) setRecentSets(data as FlashcardSet[]);
+    setLoadingHistory(false);
   }, [supabase, userId]);
 
   useEffect(() => { fetchRecentSets(); }, [fetchRecentSets]);
@@ -345,6 +359,96 @@ function FlashcardsApp() {
       else setError(data.error || "Failed to merge topics");
     } catch (err: any) { setError(err.message); }
     finally { setLoading(false); }
+  };
+
+  const handleRunSanitize = async (dryRun: boolean = true) => {
+    if (!dryRun && !confirm("CẢNH BÁO: Hành động này sẽ thay đổi dữ liệu thật trong database. Bạn có chắc chắn muốn thực hiện dọn dẹp thật?")) return;
+
+    setSanitizeLoading(true);
+    setSanitizeResult(null);
+    setSanitizeProgress(null);
+
+    try {
+      const response = await fetch("/api/admin/sanitize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dryRun }),
+      });
+
+      if (!response.ok) throw new Error("Sanitization failed to start");
+      if (!response.body) throw new Error("No response body");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const data = JSON.parse(line);
+            if (data.type === "progress") {
+              setSanitizeProgress({ current: data.current, total: data.total, topic: data.topic });
+            } else if (data.type === "complete") {
+              setSanitizeResult(data);
+              setSanitizeProgress(null);
+            } else if (data.type === "error") {
+              setError(data.error);
+            }
+          } catch (e) {
+            console.error("Parse error in stream:", e);
+          }
+        }
+      }
+
+      fetchRecentSets();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSanitizeLoading(false);
+    }
+  };
+
+  const handleQuickDelete = async (setId: string, cardFront: string) => {
+    if (!confirm(`Bạn có chắc chắn muốn xóa thẻ này?\n"${cardFront}"`)) return;
+
+    try {
+      const response = await fetch("/api/admin/delete-card", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ setId, cardFront }),
+      });
+
+      if (!response.ok) throw new Error("Delete failed");
+
+      // Update local state to remove the item from potentialIssues list
+      setSanitizeResult((prev: any) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          potentialIssues: prev.potentialIssues.filter((issue: any) =>
+            !(issue.setId === setId && issue.card.front === cardFront)
+          ),
+          summary: {
+            ...prev.summary,
+            potentialIssuesCount: prev.summary.potentialIssuesCount - 1
+          }
+        };
+      });
+
+      setToastMessage("Đã xóa thẻ thành công");
+      setTimeout(() => setToastMessage(null), 3000);
+      fetchRecentSets();
+    } catch (err: any) {
+      setError("Không thể xóa thẻ: " + err.message);
+    }
   };
 
   const handleBackfill = async () => {
@@ -601,12 +705,34 @@ function FlashcardsApp() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  {filteredSets.map(s => (
-                    <div
+                <motion.div
+                  className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"
+                  variants={{
+                    hidden: { opacity: 0 },
+                    show: {
+                      opacity: 1,
+                      transition: {
+                        staggerChildren: 0.05
+                      }
+                    }
+                  }}
+                  initial="hidden"
+                  animate="show"
+                >
+                  {loadingHistory ? (
+                    Array.from({ length: 12 }).map((_, i) => (
+                      <FlashcardSkeleton key={`history-skeleton-${i}`} />
+                    ))
+                  ) : filteredSets.map(s => (
+                    <motion.div
                       key={s.id}
                       onClick={() => { setTopic(s.topic); setFlashcards(s.cards); }}
                       className="text-left bg-slate-800/40 p-4 rounded-xl border border-slate-700/50 hover:border-indigo-500 transition-all group relative cursor-pointer"
+                      variants={{
+                        hidden: { opacity: 0, y: 10 },
+                        show: { opacity: 1, y: 0 }
+                      }}
+                      whileHover={{ y: -4 }}
                     >
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div className="font-bold text-slate-200 break-words leading-snug group-hover:text-indigo-400 flex-1">
@@ -631,9 +757,9 @@ function FlashcardsApp() {
                           <CategoryBadge category={s.categories} fallbackName={s.category} />
                         </div>
                       </div>
-                    </div>
+                    </motion.div>
                   ))}
-                </div>
+                </motion.div>
               </div>
             )}
           </div>
@@ -784,6 +910,152 @@ function FlashcardsApp() {
                 {loading ? <Loader2 className="animate-spin w-4 h-4" /> : null}
                 Merge Duplicates
               </button>
+            </div>
+
+            {/* Sanitizer / Deep Clean */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 space-y-6 shadow-2xl relative overflow-hidden group">
+              {/* Decorative accent */}
+              <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 blur-3xl -z-10 group-hover:bg-indigo-500/10 transition-colors" />
+
+              <div>
+                <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-indigo-400" />
+                  Dọn dẹp &amp; Tối ưu thẻ (Deep Clean)
+                </h2>
+                <p className="text-sm text-zinc-400 mt-2 leading-relaxed">
+                  Quét toàn bộ database để loại bỏ thẻ trùng lặp, ưu tiên giữ lại các thẻ có giải nghĩa chi tiết bằng <span className="text-indigo-300 font-medium">Tiếng Việt</span>.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  onClick={() => handleRunSanitize(true)}
+                  disabled={sanitizeLoading}
+                  className="flex-1 py-4 bg-zinc-800 hover:bg-zinc-750 disabled:opacity-50 text-zinc-200 font-bold rounded-2xl flex items-center justify-center gap-2 transition-all border border-white/5 active:scale-95"
+                >
+                  {sanitizeLoading && !sanitizeProgress ? <Loader2 className="animate-spin w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  Kiểm tra (Dry Run)
+                </button>
+                <button
+                  onClick={() => handleRunSanitize(false)}
+                  disabled={sanitizeLoading}
+                  className="flex-1 py-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold rounded-2xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-indigo-500/20 active:scale-95"
+                >
+                  {sanitizeLoading ? <Loader2 className="animate-spin w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                  Thực thi Dọn dẹp
+                </button>
+              </div>
+
+              {/* Progress Analysis */}
+              <AnimatePresence>
+                {sanitizeProgress && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="space-y-3 pt-2"
+                  >
+                    <div className="flex justify-between items-end text-xs mb-1">
+                      <div className="space-y-1">
+                        <span className="text-zinc-500 uppercase font-black text-[10px] tracking-widest">Đang phân tích</span>
+                        <div className="text-zinc-200 font-medium truncate max-w-[200px]">{sanitizeProgress.topic}</div>
+                      </div>
+                      <span className="text-indigo-400 font-bold tabular-nums">
+                        {Math.round((sanitizeProgress.current / sanitizeProgress.total) * 100)}%
+                      </span>
+                    </div>
+                    <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden border border-white/5">
+                      <motion.div
+                        className="bg-indigo-500 h-full shadow-[0_0_15px_rgba(99,102,241,0.5)]"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${(sanitizeProgress.current / sanitizeProgress.total) * 100}%` }}
+                        transition={{ duration: 0.3 }}
+                      />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Final Summary Stats */}
+              <AnimatePresence>
+                {sanitizeResult && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="space-y-6 pt-2"
+                  >
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4 text-indigo-400" />
+                        <span className="text-sm font-bold text-white uppercase tracking-tight">Kết quả dọn dẹp</span>
+                      </div>
+                      <button
+                        onClick={() => setSanitizeResult(null)}
+                        className="text-[10px] text-zinc-500 hover:text-white flex items-center gap-1.5 px-2 py-1 bg-zinc-800/50 hover:bg-zinc-800 rounded-md transition-all font-bold"
+                      >
+                        <RefreshCcw className="w-2.5 h-2.5" />
+                        LÀM MỚI
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                      {[
+                        { label: "Total Sets", val: sanitizeResult.summary.totalProcessed, color: "text-white" },
+                        { label: "Updated", val: sanitizeResult.summary.setsUpdated, color: "text-indigo-400" },
+                        { label: "Removed", val: sanitizeResult.summary.cardsRemoved, color: "text-emerald-400" },
+                        { label: "Issues", val: sanitizeResult.summary.potentialIssuesCount, color: "text-rose-400" }
+                      ].map((stat, i) => (
+                        <div key={i} className="bg-zinc-800/50 p-4 rounded-2xl border border-white/5 flex flex-col items-center justify-center text-center">
+                          <div className="text-[9px] text-zinc-500 uppercase font-black tracking-tighter mb-1">{stat.label}</div>
+                          <div className={`text-xl font-black ${stat.color} tabular-nums`}>{stat.val}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Potential Issues List */}
+                    {sanitizeResult.potentialIssues?.length > 0 && (
+                      <div className="space-y-3">
+                        <div className="text-xs font-bold text-rose-400 uppercase tracking-widest flex items-center gap-2 px-1">
+                          <AlertTriangle className="w-3.5 h-3.5" />
+                          Potential Issues (English-only)
+                        </div>
+                        <div className="bg-black/40 rounded-2xl border border-zinc-800 max-h-60 overflow-y-auto custom-scrollbar p-3 space-y-2">
+                          {sanitizeResult.potentialIssues.length === 0 ? (
+                            <div className="py-8 text-center text-zinc-500 text-xs">
+                              ✨ Không phát hiện vấn đề nào về ngôn ngữ.
+                            </div>
+                          ) : sanitizeResult.potentialIssues.map((issue: any, i: number) => (
+                            <div key={i} className="group/issue text-[11px] p-3 bg-zinc-900/50 rounded-xl border border-white/5 hover:border-zinc-700 transition-colors relative">
+                              <div className="flex justify-between items-start gap-2">
+                                <div className="text-indigo-300 font-bold truncate mb-1 pr-8">{issue.topic}</div>
+                                <button
+                                  onClick={() => handleQuickDelete(issue.setId, issue.card.front)}
+                                  className="p-1.5 rounded-md text-rose-500 hover:bg-rose-500 hover:text-white opacity-0 group-hover/issue:opacity-100 transition-all shrink-0"
+                                  title="Xóa thẻ này"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                              <div className="grid grid-cols-1 gap-1 text-zinc-400 leading-normal">
+                                <div className="italic text-zinc-300 font-medium truncate">Q: {issue.card.front}</div>
+                                <div className="text-zinc-500 flex items-start gap-1">
+                                  <ArrowRight className="w-3 h-3 mt-0.5 shrink-0" />
+                                  <span className="truncate">{issue.card.back}</span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="text-[10px] text-center text-zinc-500 italic pb-2">
+                      {sanitizeResult.dryRun
+                        ? "⚠️ Đây là kết quả Dry Run. Dữ liệu thật chưa bị thay đổi."
+                        : "✅ Database đã được tối ưu hóa thành công."}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
         )}

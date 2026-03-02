@@ -138,7 +138,7 @@ export default function UserDropdown() {
               scale: 0.95,
             }}
             transition={{ duration: 0.1 }}
-            className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden z-50"
+            className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden z-[110]"
           >
             <div className="p-4 border-b border-gray-100">
               <p className="text-sm font-medium text-gray-900 truncate">
