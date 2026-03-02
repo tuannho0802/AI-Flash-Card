@@ -27,13 +27,11 @@ import {
   AlertTriangle,
   ArrowRight,
   RefreshCcw,
-  AlertCircle
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 import { Flashcard, FlashcardSet } from "@/types/flashcard";
 import { useLearningProgress } from "@/hooks/useLearningProgress";
-import { getCategoryColor } from "@/utils/categoryColor";
 import { CategoryBadge } from "@/components/CategoryBadge";
 import AppSidebar, { SidebarTab } from "@/components/AppSidebar";
 import CategoriesAdmin from "@/components/CategoriesAdmin";
@@ -706,13 +704,16 @@ function FlashcardsApp() {
                 </div>
 
                 <motion.div
-                  className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"
+                  className="grid gap-6"
+                  style={{
+                    gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))"
+                  }}
                   variants={{
                     hidden: { opacity: 0 },
                     show: {
                       opacity: 1,
                       transition: {
-                        staggerChildren: 0.05
+                        staggerChildren: 0.03
                       }
                     }
                   }}
@@ -727,12 +728,11 @@ function FlashcardsApp() {
                     <motion.div
                       key={s.id}
                       onClick={() => { setTopic(s.topic); setFlashcards(s.cards); }}
-                      className="text-left bg-slate-800/40 p-4 rounded-xl border border-slate-700/50 hover:border-indigo-500 transition-all group relative cursor-pointer"
+                      className="text-left bg-zinc-900/40 p-5 rounded-2xl border border-white/5 hover:border-indigo-500/50 transition-all group relative cursor-pointer h-full"
                       variants={{
-                        hidden: { opacity: 0, y: 10 },
-                        show: { opacity: 1, y: 0 }
+                        hidden: { opacity: 0 },
+                        show: { opacity: 1 }
                       }}
-                      whileHover={{ y: -4 }}
                     >
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div className="font-bold text-slate-200 break-words leading-snug group-hover:text-indigo-400 flex-1">

@@ -124,24 +124,19 @@ export async function POST(req: Request) {
                     // 1. Deduplicate & Merge
                     const { merged, removedCount } = smartMergeCards(cards);
 
-                    // 2. Identify Potential Issues
-                    const topicLower = set.topic.toLowerCase();
-                    const isEnglishLearningTopic = topicLower.includes("tiếng anh") ||
-                        topicLower.includes("english") ||
-                        topicLower.includes("ielts") ||
-                        topicLower.includes("toeic");
+                    // 2. Identify Potential Issues (Strict check: Flag all English-only cards regardless of topic)
+                    merged.forEach(card => {
+                        const hasVN = hasVietnamese(card.front) || hasVietnamese(card.back);
+                        console.log(`Checking card in set "${set.topic}": Detected VN: ${hasVN}`);
 
-                    if (!isEnglishLearningTopic) {
-                        merged.forEach(card => {
-                            if (isEnglishOnly(card)) {
-                                potentialIssues.push({
-                                    setId: set.id,
-                                    topic: set.topic,
-                                    card: card
-                                });
-                            }
-                        });
-                    }
+                        if (!hasVN) {
+                            potentialIssues.push({
+                                setId: set.id,
+                                topic: set.topic,
+                                card: card
+                            });
+                        }
+                    });
 
                     // 3. Update
                     if (removedCount > 0) {
