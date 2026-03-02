@@ -137,9 +137,12 @@ function FlashcardsApp() {
       query = query.is("user_id", null);
     }
     setLoadingHistory(true);
-    const { data } = await query;
-    if (data) setRecentSets(data as FlashcardSet[]);
-    setLoadingHistory(false);
+    try {
+      const { data } = await query;
+      if (data) setRecentSets(data as FlashcardSet[]);
+    } finally {
+      setLoadingHistory(false);
+    }
   }, [supabase, userId]);
 
   useEffect(() => { fetchRecentSets(); }, [fetchRecentSets]);
@@ -636,7 +639,7 @@ function FlashcardsApp() {
             )}
 
             {/* History */}
-            {recentSets.length > 0 && (
+            {(loadingHistory || recentSets.length > 0) && (
               <div className="pt-8 border-t border-slate-800">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                   <h3 className="text-xl font-bold text-white flex items-center gap-2">
@@ -724,41 +727,40 @@ function FlashcardsApp() {
                     Array.from({ length: 12 }).map((_, i) => (
                       <FlashcardSkeleton key={`history-skeleton-${i}`} />
                     ))
-                  ) : filteredSets.map(s => (
-                    <motion.div
-                      key={s.id}
-                      onClick={() => { setTopic(s.topic); setFlashcards(s.cards); }}
-                      className="text-left bg-zinc-900/40 p-5 rounded-2xl border border-white/5 hover:border-indigo-500/50 transition-all group relative cursor-pointer h-full"
-                      variants={{
-                        hidden: { opacity: 0 },
-                        show: { opacity: 1 }
-                      }}
-                    >
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <div className="font-bold text-slate-200 break-words leading-snug group-hover:text-indigo-400 flex-1">
-                          {s.topic}
+                  ) : (
+                    filteredSets.map(s => (
+                      <motion.div
+                        key={s.id}
+                        onClick={() => { setTopic(s.topic); setFlashcards(s.cards); }}
+                        className="text-left bg-zinc-900/40 p-5 rounded-2xl border border-white/5 hover:border-indigo-500/50 transition-all group relative cursor-pointer h-full"
+                        initial={{ opacity: 1 }}
+                      >
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <div className="font-bold text-slate-200 break-words leading-snug group-hover:text-indigo-400 flex-1">
+                            {s.topic}
+                          </div>
+                          {/* Edit — Admin only */}
+                          {isAdmin && (
+                            <button
+                              onClick={e => { e.stopPropagation(); handleEditCategory(s.id, s.category || null); }}
+                              className="shrink-0 p-1 rounded-md hover:bg-slate-700 text-slate-600 hover:text-indigo-400 transition-colors"
+                              title="Sửa danh mục"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
-                        {/* Edit — Admin only */}
-                        {isAdmin && (
-                          <button
-                            onClick={e => { e.stopPropagation(); handleEditCategory(s.id, s.category || null); }}
-                            className="shrink-0 p-1 rounded-md hover:bg-slate-700 text-slate-600 hover:text-indigo-400 transition-colors"
-                            title="Sửa danh mục"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-xs text-slate-500">
-                          {s.cards.length} cards • {new Date(s.created_at).toLocaleDateString()}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-xs text-slate-500">
+                            {s.cards.length} cards • {new Date(s.created_at).toLocaleDateString()}
+                          </div>
+                          <div className="shrink-0">
+                            <CategoryBadge category={s.categories} fallbackName={s.category} />
+                          </div>
                         </div>
-                        <div className="shrink-0">
-                          <CategoryBadge category={s.categories} fallbackName={s.category} />
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))}
+                      </motion.div>
+                    ))
+                  )}
                 </motion.div>
               </div>
             )}
