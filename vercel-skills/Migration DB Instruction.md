@@ -15,7 +15,8 @@ CREATE TABLE flashcard_sets (
   user_id UUID REFERENCES auth.users(id),
   topic TEXT NOT NULL,
   cards JSONB NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+  created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now())
 );
 ```
 

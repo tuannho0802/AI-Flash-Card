@@ -18,6 +18,7 @@ export interface FlashcardSet {
   normalized_topic: string;
   cards: Flashcard[];
   created_at: string;
+  updated_at?: string | null;
   user_id?: string | null;
   contributor_ids?: string[] | null;
   aliases?: string[] | null;

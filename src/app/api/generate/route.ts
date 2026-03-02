@@ -2,6 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { Flashcard } from "@/types/flashcard";
 import { createClient } from "@/utils/supabase/server";
 import { CATEGORY_TRANSLATIONS, getBestIcon, normalizeString, generateSlug } from "@/utils/categoryUtils";
+import { smartMergeCards, sanitizeFlashcards } from "@/utils/flashcardUtils";
 
 export const runtime = "edge";
 export const dynamic = 'force-dynamic';
@@ -16,7 +17,13 @@ export async function POST(req: Request) {
         }
 
         const body = await req.json();
-        const { topic, count = 5, userId, category: userCategory } = body;
+        const { topic, count = 5, userId, category: userCategory, flashcards: generatedFlashcards, saveOnly } = body;
+
+        if (saveOnly && generatedFlashcards) {
+            console.log("Generate API: saveOnly mode detected. Skipping AI generation.");
+            const result = await saveToDatabase({ normalized_topic: topic, flashcards: generatedFlashcards }, userId, topic, userCategory);
+            return Response.json(result);
+        }
 
         // Security Check: CRON_SECRET for automated jobs or valid userId (optional refinement)
         const cronSecret = process.env.CRON_SECRET;
@@ -27,12 +34,32 @@ export async function POST(req: Request) {
             return Response.json({ error: "Topic is required" }, { status: 400 });
         }
 
+        const supabase = await createClient();
+
+        // Check for existing sets to provide "Avoid duplicates" context to AI
+        let existingQuestions: string[] = [];
+        const { data: existingSet } = await supabase
+            .from("flashcard_sets")
+            .select("cards")
+            .ilike("normalized_topic", topic.trim())
+            .limit(1)
+            .maybeSingle();
+
+        if (existingSet?.cards && Array.isArray(existingSet.cards)) {
+            existingQuestions = existingSet.cards.map((c: any) => c.front);
+        }
+
         const genAI = new GoogleGenAI({ apiKey, apiVersion: 'v1beta' });
         const models = ['gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemma-3-27b-it'];
 
         const categoryInstruction = userCategory
             ? `- Use "${userCategory}" as the category (user-provided).`
             : `- Assign a 1-2 word Vietnamese category (e.g., Công nghệ, Y tế, Lịch sử, Ngôn ngữ, Khoa học, Kinh doanh, Toán học).`;
+
+        const avoidInstruction = existingQuestions.length > 0
+            ? `- IMPORTANT: The topic already has flashcards. AVOID these questions: ${existingQuestions.slice(0, 10).join(", ")}... 
+               - Instead, generate NEW ANGLES or DEEPER insights (e.g., history, case studies, advanced concepts, or common pitfalls).`
+            : "";
 
         const prompt = `Your task is a two-step educational process for the topic: "${topic}".
         
@@ -45,9 +72,10 @@ export async function POST(req: Request) {
         Step 2: Categorize this topic.
         ${categoryInstruction}
 
-        Step 3: Generate ${count} high-quality educational flashcards for this topic.
+        Step 3: Generate EXACTLY ${count + 2} high-quality educational flashcards for this topic.
         - Language: Vietnamese.
         - Structure: Question/Term on the front, Answer/Definition on the back.
+        ${avoidInstruction}
 
         Return ONLY a raw JSON object with this exact structure:
         {
@@ -128,7 +156,9 @@ export async function POST(req: Request) {
                                     const data = JSON.parse(fullResponse);
                                     if (data.flashcards && data.normalized_topic) {
                                         const finalCategory = userCategory || data.category || null;
-                                        await saveToDatabase(data, userId, topic, finalCategory);
+                                        // We no longer save here directly, instead return the data to the client
+                                        // The client will then make a separate call to saveToDatabase
+                                        // await saveToDatabase(data, userId, topic, finalCategory);
                                     }
                                 } catch (err) {
                                     console.error("Generate API: Background Save - Parsing/Saving failed:", err);
@@ -245,7 +275,7 @@ async function resolveCategoryId(supabase: any, categoryName: string | null): Pr
     return { id: (newCat as any).id, name: finalName };
 }
 
-async function saveToDatabase(data: any, userId: string | undefined, originalTopic: string, category?: string | null) {
+async function saveToDatabase(data: any, userId: string | undefined, originalTopic: string, category?: string | null): Promise<{ added: number, filtered: number, total: number, fullSet: Flashcard[] }> {
     try {
         const supabase = await createClient();
         const { normalized_topic, flashcards } = data;
@@ -270,19 +300,26 @@ async function saveToDatabase(data: any, userId: string | undefined, originalTop
             throw searchError;
         }
 
+        let finalCards: Flashcard[] = [];
+        let addedCount = 0;
+        let filteredCount = 0;
+
         if (existingSets && existingSets.length > 0) {
             // Smart Merge Logic
             const primarySet = existingSets[0];
             console.log(`Generate API: Background Save - Found existing set (ID: ${primarySet.id}). Merging...`);
 
-            // Deduplicate cards by front content (case-insensitive)
-            const cardsMap = new Map();
-            (primarySet.cards || []).forEach((c: Flashcard) => cardsMap.set(c.front.toLowerCase().trim(), c));
-            (flashcards || []).forEach((c: Flashcard) => {
-                const key = c.front.toLowerCase().trim();
-                if (!cardsMap.has(key)) cardsMap.set(key, c);
-            });
-            const mergedCards = Array.from(cardsMap.values());
+            // 1. Sanitize incoming cards
+            const incomingCards = sanitizeFlashcards(flashcards);
+
+            // 2. Sanitize and Clean existing cards (One-time Cleanup logic)
+            const currentCards = sanitizeFlashcards(primarySet.cards);
+
+            // 3. Smart Merge (Deduplicate by normalized front, keep better back)
+            finalCards = smartMergeCards(currentCards, incomingCards);
+
+            addedCount = finalCards.length - currentCards.length;
+            filteredCount = (currentCards.length + incomingCards.length) - finalCards.length;
 
             // Merge contributor IDs
             const contributors = new Set(primarySet.contributor_ids || []);
@@ -295,7 +332,7 @@ async function saveToDatabase(data: any, userId: string | undefined, originalTop
             if (primarySet.topic) aliases.add(primarySet.topic);
 
             const updatePayload: Record<string, any> = {
-                cards: mergedCards,
+                cards: finalCards,
                 contributor_ids: Array.from(contributors).filter(Boolean),
                 aliases: Array.from(aliases).filter(Boolean),
                 updated_at: new Date().toISOString()
@@ -324,12 +361,16 @@ async function saveToDatabase(data: any, userId: string | undefined, originalTop
         } else {
             // New entry
             console.log(`Generate API: Background Save - Creating new set for "${normalized_topic}".`);
+            finalCards = sanitizeFlashcards(flashcards);
+            addedCount = finalCards.length;
+            filteredCount = 0;
+
             const { error: insertError } = await supabase
                 .from("flashcard_sets")
                 .insert({
                     topic: originalTopic,
                     normalized_topic: normalized_topic,
-                    cards: flashcards,
+                    cards: finalCards,
                     user_id: userId || null,
                     contributor_ids: userId ? [userId] : [],
                     aliases: [originalTopic],
@@ -343,6 +384,7 @@ async function saveToDatabase(data: any, userId: string | undefined, originalTop
             }
             console.log(`Generate API: Background Save - Successfully created new set.`);
         }
+        return { added: addedCount, filtered: filteredCount, total: finalCards.length, fullSet: finalCards };
     } catch (err: any) {
         console.error("Generate API: saveToDatabase Error:", err.message);
         throw err; // Re-throw to allow parent to handle

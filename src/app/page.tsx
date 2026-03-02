@@ -275,15 +275,46 @@ function FlashcardsApp() {
         const finalData = JSON.parse(accumulatedText);
         if (finalData.flashcards) {
           setTopic(finalData.normalized_topic);
-          setFlashcards(finalData.flashcards);
-          sessionCache.current.set(cleanedTopic, {
-            normalized_topic: finalData.normalized_topic,
-            flashcards: finalData.flashcards,
-          });
+          // Call saveToDatabase directly and get the merged cards
+          const {
+            added,
+            filtered,
+            total,
+            fullSet,
+          } = await fetch("/api/generate", {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              topic: finalData.normalized_topic,
+              count: quantity, // This count is for AI generation, not final merge
+              userId,
+              category: finalData.category,
+              flashcards: finalData.flashcards, // Pass generated cards for merging
+              saveOnly: true, // Indicate that this is a save-only call
+            }),
+          }).then((res) => res.json());
+
+          setFlashcards(fullSet);
+          sessionCache.current.set(
+            cleanedTopic,
+            {
+              normalized_topic:
+                finalData.normalized_topic,
+              flashcards: fullSet,
+            },
+          );
           setSavedSuccess(true);
           fetchRecentSets();
-          setToastMessage(`Hoàn tất bộ thẻ "${finalData.normalized_topic}"!`);
-          setTimeout(() => setToastMessage(null), 5000);
+          setToastMessage(
+            `Hoàn tất bộ thẻ "${finalData.normalized_topic}"! Đã thêm ${added} thẻ mới, lọc ${filtered} trùng lặp. Tổng: ${total} thẻ.`,
+          );
+          setTimeout(
+            () => setToastMessage(null),
+            5000,
+          );
         }
       } catch (e) { console.error("Final parse failed:", e); }
 
