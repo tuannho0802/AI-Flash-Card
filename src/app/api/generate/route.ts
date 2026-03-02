@@ -2,7 +2,6 @@ import { GoogleGenAI } from "@google/genai";
 import { Flashcard } from "@/types/flashcard";
 import { createClient } from "@/utils/supabase/server";
 import { CATEGORY_TRANSLATIONS, getBestIcon, normalizeString, generateSlug } from "@/utils/categoryUtils";
-import { smartMergeCards, sanitizeFlashcards } from "@/utils/flashcardUtils";
 
 export const runtime = "edge";
 export const dynamic = 'force-dynamic';
@@ -17,15 +16,26 @@ export async function POST(req: Request) {
         }
 
         const body = await req.json();
-        const { topic, count = 5, userId, category: userCategory, flashcards: generatedFlashcards, saveOnly } = body;
+        const {
+            topic,
+            count = 5,
+            userId,
+            category: userCategory,
+            flashcards: generatedFlashcards,
+            saveOnly,
+            currentCount = 0
+        } = body;
 
         if (saveOnly && generatedFlashcards) {
             console.log("Generate API: saveOnly mode detected. Skipping AI generation.");
-            const result = await saveToDatabase({ normalized_topic: topic, flashcards: generatedFlashcards }, userId, topic, userCategory);
+            const result = await saveToDatabase({
+                normalized_topic: topic,
+                flashcards: generatedFlashcards
+            }, userId, topic, userCategory, count, currentCount);
             return Response.json(result);
         }
 
-        // Security Check: CRON_SECRET for automated jobs or valid userId (optional refinement)
+        // Security Check: CRON_SECRET for automated jobs or valid userId
         const cronSecret = process.env.CRON_SECRET;
         const authHeader = req.headers.get("Authorization");
         const isCron = cronSecret && authHeader === `Bearer ${cronSecret}`;
@@ -36,8 +46,9 @@ export async function POST(req: Request) {
 
         const supabase = await createClient();
 
-        // Check for existing sets to provide "Avoid duplicates" context to AI
+        // Check for existing sets
         let existingQuestions: string[] = [];
+        let existingCount = 0;
         const { data: existingSet } = await supabase
             .from("flashcard_sets")
             .select("cards")
@@ -47,18 +58,24 @@ export async function POST(req: Request) {
 
         if (existingSet?.cards && Array.isArray(existingSet.cards)) {
             existingQuestions = existingSet.cards.map((c: any) => c.front);
+            existingCount = existingSet.cards.length;
         }
 
         const genAI = new GoogleGenAI({ apiKey, apiVersion: 'v1beta' });
         const models = ['gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemma-3-27b-it'];
+
+        // Over-generate by 50% to create buffer for filtering
+        const bufferCount = Math.ceil(count * 1.5);
 
         const categoryInstruction = userCategory
             ? `- Use "${userCategory}" as the category (user-provided).`
             : `- Assign a 1-2 word Vietnamese category (e.g., Công nghệ, Y tế, Lịch sử, Ngôn ngữ, Khoa học, Kinh doanh, Toán học).`;
 
         const avoidInstruction = existingQuestions.length > 0
-            ? `- IMPORTANT: The topic already has flashcards. AVOID these questions: ${existingQuestions.slice(0, 10).join(", ")}... 
-               - Instead, generate NEW ANGLES or DEEPER insights (e.g., history, case studies, advanced concepts, or common pitfalls).`
+            ? `- CRITICAL: The topic already has ${existingCount} flashcards. AVOID THESE EXACT QUESTIONS:
+               ${existingQuestions.slice(0, 15).map(q => `"${q}"`).join(", ")}
+               - Instead, generate COMPLETELY NEW questions on different aspects, advanced concepts, or deeper insights.
+               - DO NOT rephrase existing questions. Create genuinely NEW content.`
             : "";
 
         const prompt = `Your task is a two-step educational process for the topic: "${topic}".
@@ -72,8 +89,10 @@ export async function POST(req: Request) {
         Step 2: Categorize this topic.
         ${categoryInstruction}
 
-        Step 3: Generate EXACTLY ${count + 2} high-quality educational flashcards for this topic.
-        - Language: Vietnamese.
+        Step 3: Generate EXACTLY ${bufferCount} high-quality educational flashcards for this topic.
+        - LANGUAGE REQUIREMENT: ALL cards MUST be in Vietnamese.
+        - Front: Vietnamese question/term
+        - Back: Vietnamese explanation (can include English terms in parentheses if needed)
         - Structure: Question/Term on the front, Answer/Definition on the back.
         ${avoidInstruction}
 
@@ -86,14 +105,14 @@ export async function POST(req: Request) {
         
         Do not include markdown headers, backticks, or any other text.`;
 
-        console.log(`Generate API: Streaming Conversion for: ${topic}`);
+        console.log(`Generate API: Streaming Conversion for: ${topic} (requesting ${bufferCount} cards with ${count} target)`);
 
         let lastError: any = null;
 
         for (const modelName of models) {
             try {
                 if (isCron) {
-                    // NON-STREAMING FLOW for Cron to ensure persistence
+                    // NON-STREAMING FLOW for Cron
                     console.log(`Generate API: Cron detected. Using non-streaming flow with model ${modelName}.`);
                     const result = await genAI.models.generateContent({
                         model: modelName,
@@ -104,15 +123,12 @@ export async function POST(req: Request) {
                         }],
                     });
 
-                    // The result usually contains a 'text' property or requires response.text() depending on the SDK method used
-                    // For genAI.models.generateContent (v1beta direct), it usually returns a GenerateContentResponse
                     const responseText = (result as any).text || (result as any).response?.text?.() || "";
 
                     const data = JSON.parse(responseText);
                     if (data.flashcards && data.normalized_topic) {
                         const finalCategory = userCategory || data.category || null;
-                        // AWAIT the save to ensure it completes before connection closes
-                        await saveToDatabase(data, userId as string | undefined, topic as string, finalCategory);
+                        await saveToDatabase(data, userId as string | undefined, topic as string, finalCategory, count, existingCount);
                         return Response.json({
                             success: true,
                             topic: data.normalized_topic,
@@ -149,22 +165,6 @@ export async function POST(req: Request) {
                                 }
                             }
                             controller.close();
-
-                            // Non-blocking Background Persistence for UI users
-                            (async () => {
-                                try {
-                                    const data = JSON.parse(fullResponse);
-                                    if (data.flashcards && data.normalized_topic) {
-                                        const finalCategory = userCategory || data.category || null;
-                                        // We no longer save here directly, instead return the data to the client
-                                        // The client will then make a separate call to saveToDatabase
-                                        // await saveToDatabase(data, userId, topic, finalCategory);
-                                    }
-                                } catch (err) {
-                                    console.error("Generate API: Background Save - Parsing/Saving failed:", err);
-                                }
-                            })();
-
                         } catch (err: any) {
                             console.error(`Generate API: Error during stream from ${modelName}:`, err);
                             controller.error(err);
@@ -187,12 +187,10 @@ export async function POST(req: Request) {
                 const status = err.status || err.code;
                 console.warn(`Generate API: Model ${modelName} failed to start stream (Status: ${status})`);
 
-                // Fallback on 429 (Rate limit), 503 (Overload), or 404 (Not Found)
                 if (status === 429 || status === 503 || status === 404 || err.message?.includes("429") || err.message?.includes("Quota")) {
                     console.log(`Generate API: Falling back from ${modelName}...`);
                     continue;
                 } else {
-                    // Fatal error for this request
                     throw err;
                 }
             }
@@ -218,6 +216,59 @@ export async function POST(req: Request) {
 const ICONS = ["Tag", "Code", "Brain", "Heart", "Globe", "Microscope", "BookOpen", "Cpu", "Briefcase", "Music", "Languages", "Calculator", "Palette", "TrendingUp", "Zap"];
 const COLORS = ["blue", "emerald", "amber", "purple", "cyan", "rose", "pink", "orange", "indigo", "slate"];
 
+function normalizeText(text: string): string {
+    return text
+        .toLowerCase()
+        .trim()
+        .replace(/[.,?!;:]/g, '')
+        .replace(/\s+/g, ' ');
+}
+
+function smartMergeCards(existing: Flashcard[], incoming: Flashcard[]): Flashcard[] {
+    const cardMap = new Map<string, Flashcard>();
+
+    // Add existing cards to map
+    existing.forEach(card => {
+        const key = normalizeText(card.front);
+        cardMap.set(key, card);
+    });
+
+    // Merge incoming cards - keep longer back if duplicate
+    incoming.forEach(card => {
+        const key = normalizeText(card.front);
+        const existingCard = cardMap.get(key);
+
+        if (!existingCard) {
+            cardMap.set(key, card);
+        } else {
+            // Keep the card with longer back text
+            if (card.back.length > existingCard.back.length) {
+                cardMap.set(key, card);
+            }
+        }
+    });
+
+    return Array.from(cardMap.values());
+}
+
+function sanitizeFlashcards(cards: any[]): Flashcard[] {
+    if (!Array.isArray(cards)) return [];
+
+    return cards
+        .filter(card =>
+            card &&
+            typeof card === 'object' &&
+            typeof card.front === 'string' &&
+            typeof card.back === 'string' &&
+            card.front.trim().length > 0 &&
+            card.back.trim().length > 0
+        )
+        .map(card => ({
+            front: card.front.trim(),
+            back: card.back.trim()
+        }));
+}
+
 async function resolveCategoryId(supabase: any, categoryName: string | null): Promise<{ id: string, name: string } | null> {
     if (!categoryName || categoryName.trim() === '') return null;
 
@@ -226,12 +277,10 @@ async function resolveCategoryId(supabase: any, categoryName: string | null): Pr
     const translatedName = CATEGORY_TRANSLATIONS[normalizedCat] || rawCat;
     let slug = generateSlug(translatedName);
 
-    // Handing special cases to map to default
     if (slug === 'khac' || slug === 'chua-phan-loai') {
         slug = 'chua-phan-loai';
     }
 
-    // Attempt to lookup
     const { data: existingCat, error: lookupErr } = await supabase
         .from('categories')
         .select('id, name')
@@ -242,15 +291,12 @@ async function resolveCategoryId(supabase: any, categoryName: string | null): Pr
         return { id: existingCat.id, name: existingCat.name };
     }
 
-    if (lookupErr && lookupErr.code !== 'PGRST116') { // PGRST116 is "No rows found"
+    if (lookupErr && lookupErr.code !== 'PGRST116') {
         console.error("Resolve Category lookup error:", lookupErr);
     }
 
-    // Insert new category
     const bestIcon = getBestIcon(translatedName);
     const randomColor = COLORS[Math.floor(Math.random() * COLORS.length)];
-
-    // Use translatedName if we are creating new
     const finalName = slug === 'chua-phan-loai' ? 'Chưa phân loại' : translatedName;
 
     const { data: newCat, error: insertErr } = await supabase
@@ -266,7 +312,6 @@ async function resolveCategoryId(supabase: any, categoryName: string | null): Pr
 
     if (insertErr) {
         console.error("Failed to auto-create category:", insertErr);
-        // Maybe someone else created it concurrently, try reading once more
         const { data: retryCat } = await supabase.from('categories').select('id, name').eq('slug', slug).single();
         return retryCat ? { id: retryCat.id, name: retryCat.name } : null;
     }
@@ -275,21 +320,27 @@ async function resolveCategoryId(supabase: any, categoryName: string | null): Pr
     return { id: (newCat as any).id, name: finalName };
 }
 
-async function saveToDatabase(data: any, userId: string | undefined, originalTopic: string, category?: string | null): Promise<{ added: number, filtered: number, total: number, fullSet: Flashcard[] }> {
+async function saveToDatabase(
+    data: any,
+    userId: string | undefined,
+    originalTopic: string,
+    category?: string | null,
+    requestedCount: number = 5,
+    currentCount: number = 0
+): Promise<{ added: number, filtered: number, total: number, fullSet: Flashcard[] }> {
     try {
         const supabase = await createClient();
         const { normalized_topic, flashcards } = data;
         const normLower = normalized_topic.toLowerCase().trim();
 
         console.log(`Generate API: Background Save - Processing "${normalized_topic}"...`);
+        console.log(`Generate API: Requested ${requestedCount} cards, current set has ${currentCount} cards`);
 
-        // Resolve Category ID and Canonical Name
         const finalCategoryText = category || "Chưa phân loại";
         const catInfo = await resolveCategoryId(supabase, finalCategoryText);
         const categoryId = catInfo?.id || null;
         const canonicalCategoryName = catInfo?.name || finalCategoryText;
 
-        // 1. Search for existing set by normalized_topic OR original topic in aliases
         const { data: existingSets, error: searchError } = await supabase
             .from("flashcard_sets")
             .select("*")
@@ -304,46 +355,51 @@ async function saveToDatabase(data: any, userId: string | undefined, originalTop
         let addedCount = 0;
         let filteredCount = 0;
 
+        // Sanitize incoming cards first
+        const incomingCards = sanitizeFlashcards(flashcards);
+        console.log(`Generate API: Sanitized ${incomingCards.length} incoming cards`);
+
         if (existingSets && existingSets.length > 0) {
-            // Smart Merge Logic
             const primarySet = existingSets[0];
-            console.log(`Generate API: Background Save - Found existing set (ID: ${primarySet.id}). Merging...`);
+            console.log(`Generate API: Found existing set (ID: ${primarySet.id}). Merging...`);
 
-            // 1. Sanitize incoming cards
-            const incomingCards = sanitizeFlashcards(flashcards);
-
-            // 2. Sanitize and Clean existing cards (One-time Cleanup logic)
             const currentCards = sanitizeFlashcards(primarySet.cards);
+            console.log(`Generate API: Current set has ${currentCards.length} cards`);
 
-            // 3. Smart Merge (Deduplicate by normalized front, keep better back)
-            finalCards = smartMergeCards(currentCards, incomingCards);
+            // Smart Merge
+            const mergedCards = smartMergeCards(currentCards, incomingCards);
+            console.log(`Generate API: After merge, have ${mergedCards.length} unique cards`);
+
+            // CRITICAL: Enforce exact count = currentCount + requestedCount
+            const expectedTotalCount = currentCount + requestedCount;
+            finalCards = mergedCards.slice(0, expectedTotalCount);
 
             addedCount = finalCards.length - currentCards.length;
             filteredCount = (currentCards.length + incomingCards.length) - finalCards.length;
 
-            // Merge contributor IDs
+            console.log(`Generate API: Final set will have exactly ${finalCards.length} cards (expected: ${expectedTotalCount})`);
+            console.log(`Generate API: Added ${addedCount} new cards, filtered ${filteredCount} duplicates`);
+
             const contributors = new Set(primarySet.contributor_ids || []);
             if (userId) contributors.add(userId);
             if (primarySet.user_id) contributors.add(primarySet.user_id);
 
-            // Merge aliases
             const aliases = new Set(primarySet.aliases || []);
             aliases.add(originalTopic);
             if (primarySet.topic) aliases.add(primarySet.topic);
 
+            // CRITICAL: Pass raw array, NOT stringified
             const updatePayload: Record<string, any> = {
-                cards: finalCards,
+                cards: finalCards,  // Raw array, Supabase handles JSONB
                 contributor_ids: Array.from(contributors).filter(Boolean),
                 aliases: Array.from(aliases).filter(Boolean),
-                updated_at: new Date().toISOString()
+                // DO NOT include updated_at - let DB handle it
             };
 
-            // Overwrite category string and link id if a new one is provided
             if (category) {
                 updatePayload.category = canonicalCategoryName;
                 updatePayload.category_id = categoryId;
             } else if (!primarySet.category_id && categoryId) {
-                // If it was previously unlinked, link it now
                 updatePayload.category = canonicalCategoryName;
                 updatePayload.category_id = categoryId;
             }
@@ -357,20 +413,24 @@ async function saveToDatabase(data: any, userId: string | undefined, originalTop
                 console.error("Generate API: Update failed:", updateError);
                 throw updateError;
             }
-            console.log(`Generate API: Background Save - Successfully merged into ID: ${primarySet.id}`);
+            console.log(`Generate API: Successfully merged into ID: ${primarySet.id}`);
         } else {
             // New entry
-            console.log(`Generate API: Background Save - Creating new set for "${normalized_topic}".`);
-            finalCards = sanitizeFlashcards(flashcards);
+            console.log(`Generate API: Creating new set for "${normalized_topic}".`);
+
+            // For new sets, take exactly requestedCount cards
+            finalCards = incomingCards.slice(0, requestedCount);
             addedCount = finalCards.length;
-            filteredCount = 0;
+            filteredCount = incomingCards.length - finalCards.length;
+
+            console.log(`Generate API: New set will have ${finalCards.length} cards`);
 
             const { error: insertError } = await supabase
                 .from("flashcard_sets")
                 .insert({
                     topic: originalTopic,
                     normalized_topic: normalized_topic,
-                    cards: finalCards,
+                    cards: finalCards,  // Raw array, NOT stringified
                     user_id: userId || null,
                     contributor_ids: userId ? [userId] : [],
                     aliases: [originalTopic],
@@ -382,11 +442,17 @@ async function saveToDatabase(data: any, userId: string | undefined, originalTop
                 console.error("Generate API: Insert failed:", insertError);
                 throw insertError;
             }
-            console.log(`Generate API: Background Save - Successfully created new set.`);
+            console.log(`Generate API: Successfully created new set.`);
         }
-        return { added: addedCount, filtered: filteredCount, total: finalCards.length, fullSet: finalCards };
+
+        return {
+            added: addedCount,
+            filtered: filteredCount,
+            total: finalCards.length,
+            fullSet: finalCards
+        };
     } catch (err: any) {
         console.error("Generate API: saveToDatabase Error:", err.message);
-        throw err; // Re-throw to allow parent to handle
+        throw err;
     }
 }

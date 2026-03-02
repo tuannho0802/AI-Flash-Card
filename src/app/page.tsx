@@ -275,48 +275,52 @@ function FlashcardsApp() {
         const finalData = JSON.parse(accumulatedText);
         if (finalData.flashcards) {
           setTopic(finalData.normalized_topic);
+
+          // Get current count for proper merge calculation
+          const currentFlashcardCount = flashcards.length;
+
           // Call saveToDatabase directly and get the merged cards
-          const {
-            added,
-            filtered,
-            total,
-            fullSet,
-          } = await fetch("/api/generate", {
+          const saveResponse = await fetch("/api/generate", {
             method: "POST",
             headers: {
-              "Content-Type":
-                "application/json",
+              "Content-Type": "application/json",
             },
             body: JSON.stringify({
               topic: finalData.normalized_topic,
-              count: quantity, // This count is for AI generation, not final merge
+              count: quantity,
+              currentCount: currentFlashcardCount,  // ✅ NEW: Pass current count
               userId,
               category: finalData.category,
-              flashcards: finalData.flashcards, // Pass generated cards for merging
-              saveOnly: true, // Indicate that this is a save-only call
+              flashcards: finalData.flashcards,
+              saveOnly: true,
             }),
-          }).then((res) => res.json());
+          });
 
+          if (!saveResponse.ok) {
+            throw new Error("Failed to save flashcards");
+          }
+
+          const { added, filtered, total, fullSet } = await saveResponse.json();
+
+          // ✅ CRITICAL: Update state immediately with the merged set
           setFlashcards(fullSet);
-          sessionCache.current.set(
-            cleanedTopic,
-            {
-              normalized_topic:
-                finalData.normalized_topic,
-              flashcards: fullSet,
-            },
-          );
+          sessionCache.current.set(cleanedTopic, {
+            normalized_topic: finalData.normalized_topic,
+            flashcards: fullSet,
+          });
+
           setSavedSuccess(true);
           fetchRecentSets();
+
           setToastMessage(
-            `Hoàn tất bộ thẻ "${finalData.normalized_topic}"! Đã thêm ${added} thẻ mới, lọc ${filtered} trùng lặp. Tổng: ${total} thẻ.`,
+            `Hoàn tất bộ thẻ "${finalData.normalized_topic}"! Đã thêm ${added} thẻ mới, lọc ${filtered} trùng lặp. Tổng: ${total} thẻ.`
           );
-          setTimeout(
-            () => setToastMessage(null),
-            5000,
-          );
+          setTimeout(() => setToastMessage(null), 5000);
         }
-      } catch (e) { console.error("Final parse failed:", e); }
+      } catch (e) {
+        console.error("Final parse/save failed:", e);
+        setError("Failed to save flashcards. Please try again.");
+      }
 
     } catch (err: any) {
       setError(err.message || "Something went wrong.");
