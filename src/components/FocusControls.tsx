@@ -46,13 +46,10 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
   const [showCustomInput, setShowCustomInput] = useState(false);
   const [customUrl, setCustomUrl] = useState("");
   const [tempUrl, setTempUrl] = useState("");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [errorCount, setErrorCount] = useState(0);
-  const [showAutoplayTip, setShowAutoplayTip] = useState(false);
-  const [poolIndex, setPoolIndex] = useState(0);
-  const [allSourcesFailed, setAllSourcesFailed] = useState(false);
   const [isShuffling, setIsShuffling] = useState(false);
-  const [heartbeatActive, setHeartbeatActive] = useState(false);
+  const [isLinkDead, setIsLinkDead] = useState(false); // Only true if YT returns an actual error code
+  const [poolIndex, setPoolIndex] = useState(0);
+
 
   // Increment this key whenever we want to force iframe re-mount (on ID rotation)
   const [iframeKey, setIframeKey] = useState(0);
@@ -138,8 +135,6 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
 
   // --- React to mood/source changes ---
   useEffect(() => {
-    setErrorCount(0);
-    setErrorMessage(null);
     if (audioRef.current) {
       audioRef.current.pause();
     }
@@ -150,45 +145,24 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
         // plain MP3 url
         audioRef.current.src = customUrl;
         if (isPlaying) {
-          audioRef.current.play().catch(() => setShowAutoplayTip(true));
+          audioRef.current.play().catch(() => { });
         }
       }
     } else if (currentMood.type === "mp3" && currentMood.urls[0]) {
       if (audioRef.current) {
         audioRef.current.src = currentMood.urls[0];
         if (isPlaying) {
-          audioRef.current.play().catch(() => setShowAutoplayTip(true));
+          audioRef.current.play().catch(() => { });
         }
       }
     }
     // YouTube types handled by iframe — nothing extra to do here
-    setAllSourcesFailed(false);   // Always reset when mood/source changes
     setIframeKey((k) => k + 1);  // New track = new iframe
+    setIsLinkDead(false);        // Reset on new source
     localStorage.setItem("focusMood", activeMoodId);
   }, [activeMoodId, customUrl, currentMood, poolIndex]);
 
-  // --- 10-second Heartbeat Watchdog for YouTube playback ---
-  useEffect(() => {
-    if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
 
-    // Reset heartbeat when track changes
-    setHeartbeatActive(false);
-
-    if (isPlaying && isYouTubeSource) {
-      fallbackTimerRef.current = setTimeout(() => {
-        // Only show alert/tip, NEVER auto-shuffle here
-        if (!heartbeatActive) {
-          setShowAutoplayTip(true);
-        }
-      }, 10000);
-    } else {
-      setShowAutoplayTip(false);
-    }
-
-    return () => {
-      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
-    };
-  }, [isPlaying, currentEmbedUrl, heartbeatActive]);
 
   // --- Play/Pause ---
   const togglePlay = () => {
@@ -201,14 +175,12 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
     if (isPlaying) {
       audioRef.current?.pause();
       setIsPlaying(false);
-      setShowAutoplayTip(false);
     } else {
       const isCustomMp3 = activeMoodId === "Custom" && !getYouTubeId(customUrl);
       if (isCustomMp3 || currentMood.type === "mp3") {
-        audioRef.current?.play().catch(() => setShowAutoplayTip(true));
+        audioRef.current?.play().catch(() => { });
       }
       setIsPlaying(true);
-      setShowAutoplayTip(false);
     }
   };
 
@@ -218,8 +190,7 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
     if (moods[nextIndex].id === "Silence") nextIndex = (nextIndex + 1) % moods.length;
     setActiveMoodId(moods[nextIndex].id);
     setPoolIndex(0);
-    setAllSourcesFailed(false);
-    setHeartbeatActive(false);
+    setIsLinkDead(false); 
   };
 
   const handleShuffle = () => {
@@ -234,44 +205,34 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
       setIframeKey(k => k + 1);
     }
 
-    setHeartbeatActive(false);
-    setAllSourcesFailed(false);
-    setErrorMessage(null);
+    setIsLinkDead(false);
     setIsPlaying(true);
 
     setTimeout(() => setIsShuffling(false), 800);
   };
 
-  // Called by the iframe's onError or Heartbeat Timeout
   const handleIframeError = () => {
-    if (activeMoodId === "Custom") {
-      setShowAutoplayTip(true);
-      return;
-    }
+    if (activeMoodId === "Custom") return;
+
     const pool = currentMood.urls;
     const nextIndex = poolIndex + 1;
     if (nextIndex < pool.length) {
       setPoolIndex(nextIndex);
       setIframeKey((k) => k + 1);
-      setHeartbeatActive(false);
-    } else {
-      setAllSourcesFailed(true);
-      setIsPlaying(false);
-      setErrorMessage(`Gặp lỗi khi phát nhạc. Vui lòng kiểm tra trình chặn quảng cáo.`);
-    }
+      setIsLinkDead(false);
+    } 
   };
 
   useEffect(() => {
     const handleYTMessage = (event: MessageEvent) => {
+      // YouTube Embed origin check
       if (event.origin !== "https://www.youtube-nocookie.com") return;
       try {
         const data = JSON.parse(event.data);
-        if (data.event === "onStateChange" && data.info === 1) {
-          setHeartbeatActive(true);
-          setShowAutoplayTip(false);
-        }
-        if (data.event === "onReady") {
-          setHeartbeatActive(true);
+
+        // --- TRUE ERRORS ONLY (Video Deleted, Private, Embed Forbidden) ---
+        if (data.event === "onError") {
+          setIsLinkDead(true);
         }
       } catch (e) { }
     };
@@ -343,8 +304,6 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
     setCustomUrl(tempUrl);
     localStorage.setItem("focusCustomUrl", tempUrl);
     setShowCustomInput(false);
-    setErrorMessage(null);
-    setErrorCount(0);
     if (!isPlaying) setIsPlaying(true);
   };
 
@@ -360,23 +319,9 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
     }
   };
 
-  const handleAudioError = () => {
-    if (errorCount >= 2) {
-      setErrorMessage("Nguồn âm thanh không khả dụng. Bạn có muốn thử nguồn dự phòng không?");
-      setIsPlaying(false);
-      return;
-    }
-    setErrorMessage("Đang thử kết nối lại...");
-    setErrorCount((prev) => prev + 1);
-    setTimeout(() => {
-      setErrorMessage(null);
-      if (activeMoodId !== "Custom") nextMood();
-    }, 2000);
-  };
+
 
   const trySecondarySource = () => {
-    setErrorCount(0);
-    setErrorMessage(null);
     nextMood();
   };
 
@@ -403,11 +348,11 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
   return (
     <>
       {/* Hidden audio element for MP3 playback */}
-      <audio ref={audioRef} loop crossOrigin="anonymous" onError={handleAudioError} />
+      <audio ref={audioRef} loop crossOrigin="anonymous" />
 
       {/* Ghost Player — 300x200px off-screen, opacity 0.01 so browser treats it as visible.
           pointer-events:none prevents accidental clicks. key forces full re-mount on track change. */}
-      {isYouTubeSource && isPlaying && currentEmbedUrl && !allSourcesFailed && (
+      {isYouTubeSource && isPlaying && currentEmbedUrl && (
         <div
           style={{
             position: "fixed",
@@ -427,46 +372,13 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
             src={currentEmbedUrl}
             allow="autoplay"
             title="focus-ambient-player"
-            onLoad={() => {
-              // Initial load heartbeat after 2s grace
-              setTimeout(() => setHeartbeatActive(true), 2000);
-            }}
-            onError={handleIframeError}
+            // onError / onLoad triggers removed to avoid false-positives.
+            // Heartbeat is strictly handled via window 'message' listener checking for PLAYING state.
           />
         </div>
       )}
 
-      {/* Error / Alert Message */}
-      <AnimatePresence>
-        {(errorMessage || showAutoplayTip) && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-4 py-2 rounded-xl text-[10px] font-bold shadow-xl z-[120] border backdrop-blur-md flex flex-col items-center gap-1.5 text-center max-w-[260px] ${showAutoplayTip
-              ? "bg-slate-900/90 border-amber-500/50 text-amber-200"
-              : "bg-slate-900/90 border-rose-500/50 text-rose-200"
-              }`}
-          >
-            {showAutoplayTip ? (
-              <>
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="w-3 h-3 text-amber-500" />
-                  <p className="opacity-80">Nhạc đang bị chặn. Hãy nhấn phát lại.</p>
-                </div>
-                <button
-                  onClick={() => { setShowAutoplayTip(false); setIsPlaying(false); setTimeout(togglePlay, 100); }}
-                  className="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 rounded-lg border border-amber-500/30 transition-colors text-[9px] uppercase tracking-wider"
-                >
-                  Phát lại
-                </button>
-              </>
-            ) : (
-                <p className="opacity-80">{errorMessage}</p>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+
 
       <AnimatePresence>
         {isVisible && (
@@ -506,6 +418,9 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
               >
                 {getMoodIcon(currentMood.icon)}
                 <span className="text-xs font-bold hidden sm:inline-block">{currentMood.label}</span>
+                {isLinkDead && (
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-500 animate-pulse ml-1" />
+                )}
                 {activeMoodId === "Custom" && customUrl && (
                   <span
                     onClick={handleResetCustomUrl}
@@ -583,13 +498,18 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
                 )}
               </AnimatePresence>
 
-              {/* Play/Pause */}
+              {/* Play/Pause — Always clean UI */}
               <button
                 onClick={togglePlay}
                 disabled={currentMood.id === "Silence"}
                 className="w-8 h-8 flex items-center justify-center rounded-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white transition-all active:scale-95"
+                title="Phát/Tạm dừng"
               >
-                {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
+                {isPlaying ? (
+                  <Pause className="w-4 h-4 fill-current" />
+                ) : (
+                  <Play className="w-4 h-4 fill-current ml-0.5" />
+                )}
               </button>
 
               {/* Shuffle / Next Track */}
