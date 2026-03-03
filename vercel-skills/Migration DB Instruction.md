@@ -140,7 +140,58 @@ USING (auth.jwt() ->> 'email' = 'phela101990@gmail.com');
 
 ---
 
-## 4. Duplicate Category Merging (Data Cleanup)
+## 4. Advanced Schema: Community Voting System
+
+The voting system allows users to rate card difficulty, which is then aggregated into a real-time statistics view.
+
+### Voting Table
+```sql
+CREATE TABLE flashcard_votes (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  set_id UUID REFERENCES flashcard_sets(id) ON DELETE CASCADE,
+  card_index INTEGER NOT NULL,
+  rating INTEGER CHECK (rating IN (1, 2, 3)), -- 1: Easy, 2: Medium, 3: Hard
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, set_id, card_index)
+);
+
+-- Index for fast lookup in API
+CREATE INDEX idx_votes_set_card ON flashcard_votes(set_id, card_index);
+```
+
+### Real-Time Difficulty Statistics (View)
+This view provides aggregated data without needing manual background updates.
+```sql
+CREATE VIEW flashcard_difficulty_stats AS
+SELECT 
+  set_id,
+  card_index,
+  COUNT(*) as total_votes,
+  COUNT(*) FILTER (WHERE rating = 1) as easy_count,
+  COUNT(*) FILTER (WHERE rating = 2) as medium_count,
+  COUNT(*) FILTER (WHERE rating = 3) as hard_count,
+  AVG(rating)::DECIMAL(3,2) as avg_rating
+FROM flashcard_votes
+GROUP BY set_id, card_index;
+```
+
+### Security (RLS for Votes)
+```sql
+ALTER TABLE flashcard_votes ENABLE ROW LEVEL SECURITY;
+
+-- Select: Users can see their own votes
+CREATE POLICY "Users can view own votes" ON flashcard_votes
+FOR SELECT USING (auth.uid() = user_id);
+
+-- Insert/Update: Authenticated users can vote
+CREATE POLICY "Users can vote" ON flashcard_votes
+FOR ALL USING (auth.uid() = user_id);
+```
+
+---
+
+## 5. Duplicate Category Merging (Data Cleanup)
 
 If your dashboard shows the same category multiple times (e.g., "History" and "history"), use these commands to consolidate them into a single canonical record.
 

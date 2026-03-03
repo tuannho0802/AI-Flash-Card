@@ -57,17 +57,18 @@ This project is a modern, AI-powered Flashcard Generator that helps users create
 - `icon`: TEXT (Lucide icon name, e.g., 'Code')
 - `color`: TEXT (Tailwind color key, e.g., 'blue')
 
-### **Schema Reference: `flashcard_sets` table**
-- `id`: UUID (Primary Key)
-- `category`: TEXT (Normalized text version, legacy/display)
-- `category_id`: UUID (Foreign Key -> `categories.id`)
-- `normalized_topic`: TEXT (Standardized title)
+### **Schema Reference: `flashcard_votes` table**
+- `user_id`: UUID (Foreign Key -> `auth.users.id`)
+- `set_id`: UUID (Foreign Key -> `flashcard_sets.id`)
+- `card_index`: INTEGER (Index of the card in the set)
+- `rating`: INTEGER (1: DỄ, 2: VỪA, 3: KHÓ)
+- `created_at`: TIMESTAMPTZ
 
-### **Schema Reference: `profiles` table**
-- `id`: UUID (Primary Key, matches `auth.users.id`)
-- `role`: TEXT (Default: 'user', Values: 'admin', 'user')
-- `full_name`: TEXT (Nullable)
-- `email`: TEXT (Nullable)
+### **Schema Reference: `flashcard_difficulty_stats` (View)**
+- `set_id`, `card_index`: Composite Key identifiers.
+- `total_votes`: BigInt (Total number of votes).
+- `easy_count`, `medium_count`, `hard_count`: Counts per rating.
+- `avg_rating`: DECIMAL (Weighted average).
 
 ---
 
@@ -76,6 +77,8 @@ This project is a modern, AI-powered Flashcard Generator that helps users create
 ### **Pre-Correction Checklist**
 1.  **Normalization**: Ensure all topic-based queries use `.ilike()` for case-insensitivity.
 2.  **Strict Typing**: Interfaces (`Flashcard`, `FlashcardSet`, `Profile`) must be strictly followed.
+3.  **Zero-Overlap Check**: Ensure the UI fits in `h-[calc(100vh-OFFSET)]` with `overflow-hidden` on roots.
+4.  **Vietnamese Typography**: **Cấm tuyệt đối italic** cho các nhãn Tiếng Việt. Sử dụng `font-sans` và `font-black`.
 
 ### **Post-Correction Checklist**
 1.  **Mandatory Lint**: Run `npx tsc --noEmit` after **ANY** change.

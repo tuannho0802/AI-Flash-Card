@@ -13,14 +13,19 @@
   1. `gemini-2.0-flash-lite` (Fastest, latest)
   2. `gemini-1.5-flash` (Stable throughput)
   3. `gemini-1.5-pro` (Highest quality / High quota limits)
-- **Resilient Error Handling**: Automatic handling of **429 Rate Limit** and **502 Gateway** errors with a user-friendly countdown and model rotation strategy.
 
 ### 🧭 Navigation & UX
-- **Glassmorphic Sidebar**: Professional side navigation with smooth transitions and collapsible mode (3-bar toggle).
-- **Autonomous Category System**: Fully automated classification for every flashcard set.
-  - **Semantic Icon Mapping**: Leverages a 50+ icon library to assign meaningful visuals based on topic keywords.
-  - **Smart Auto-Fix**: Automatically translates and repairs legacy names.
-- **Intelligent Search Engine**: Powered by **PostgreSQL GIN Indexes** on array-based `aliases` to recognize synonyms and multi-language searches instantly.
+- **Premium Study Mode**: High-fidelity interaction engine featuring:
+  - **Zero-Overlap Layout**: Fixed viewport architecture (`h-[calc(100vh-offset)]`) to prevent element shifting.
+  - **Stable 3D Flips**: Absolute coordinate anchoring to eliminate jitter during card rotations.
+  - **Physics-Based Animation**: Fluid interactions powered by standardized spring physics (`stiffness: 400, damping: 25`).
+- **Glassmorphic Sidebar**: Professional side navigation with smooth transitions and collapsible mode.
+- **Autonomous Category System**: Fully automated classification with semantic icon mapping and auto-translation.
+
+### 📊 Community Intelligence
+- **Community Voting System**: Real-time difficulty rating system (Easy, Medium, Hard).
+- **Difficulty Statistics**: Aggregated community insights displayed via animated progress bars on flashcard backs.
+- **Optimistic UI**: Instant visual feedback for votes using "Animation-First" logic.
 
 ### 🧠 Database Workflow & AI Pipeline
 To maintain a high-quality library, the system follows a structured data pipeline:
@@ -38,10 +43,20 @@ To maintain a high-quality library, the system follows a structured data pipelin
 
 - **Framework**: [Next.js 15](https://nextjs.org/) (App Router & AppShell layout)
 - **AI Infrastructure**: [Google GenAI SDK](https://www.npmjs.com/package/@google/genai) (`v1beta` API)
-- **Database**: [Supabase](https://supabase.com/) (PostgreSQL)
-  - **Advanced Features**: GIN Indexes, Array types, PL/pgSQL Triggers, and Row Level Security.
+- **Database**: [Supabase](https://supabase.com/) (PostgreSQL + Real-time Views)
 - **Styling**: Tailwind CSS v4 + Framer Motion v12
+- **Typography**: Optimized Vietnamese support (font-sans, strictly no italics for diacritic stability).
 - **Icons**: Lucide React
+
+
+## 📚 Developer Documentation (Source of Truth)
+
+For detailed technical standards, database migrations, and coding patterns, refer to the [**`vercel-skills/`**](./vercel-skills/) directory:
+
+- [**`INSTRUCTION.md`**](./vercel-skills/INSTRUCTION.md): Core architecture and Standard Operating Procedures (SOP).
+- [**`ui-ux-standards.md`**](./vercel-skills/ui-ux-standards.md): Visual and interaction "Source of Truth".
+- [**`Migration DB Instruction.md`**](./vercel-skills/Migration%20DB%20Instruction.md): Full schema and SQL snippets.
+- [**`PROGRESS.md`**](./vercel-skills/PROGRESS.md): Technical milestones and bug-fix logs.
 
 
 ## 📦 Getting Started

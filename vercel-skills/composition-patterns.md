@@ -70,3 +70,12 @@ Patterns for scalable React components within the AI Flashcards project.
 
 - **Target Refactor**: `Flashcard.tsx` handles both display and flip logic.
 - **Future Goal**: Split into `FlashcardContainer` (flip state) and `FlashcardView` (rendering) if logic grows complex.
+
+### 5. Zero-Overlap Layout Pattern
+
+- **Architecture**: Used in `StudyMode.tsx` to ensure absolute stability.
+- **Implementation**:
+    - **Root**: `h-[calc(100vh-80px)] flex flex-col overflow-hidden`.
+    - **Middle (Content)**: `flex-grow` with `max-h-[50vh]`. Use internal `overflow-y-auto`.
+    - **Bottom (Footer)**: `mt-auto flex-shrink-0`.
+- **Benefit**: Elements never shift or overlap regardless of content height change (e.g., during flip).

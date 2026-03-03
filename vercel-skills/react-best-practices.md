@@ -47,3 +47,8 @@ Performance and stability guidelines tailored for the AI Flashcards architecture
 - **Context**: Google GenAI SDK can be strict.
 - **Best Practice**: Do NOT trust `responseMimeType: 'application/json'` blindly on Free Tier.
 - **Solution**: Always use regex to extract the JSON array from the raw text response.
+
+### 6. Animation-First & Physics Rules
+- **Optimistic UI**: Update UI state (e.g., voting active state) **immediately** before starting any `fetch` or `mutate` call.
+- **Standard Physics**: Use `transition={{ type: "spring", stiffness: 400, damping: 25 }}` for a consistent "Premium" feel.
+- **No Invariant Arrays**: Never use a 3+ value keyframe array with `spring`. Use a single target value or `type: "keyframes"` if bouncing is required manually.

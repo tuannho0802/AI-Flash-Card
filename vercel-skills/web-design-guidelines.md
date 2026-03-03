@@ -11,8 +11,11 @@ Design system and visual standards for the Dark Blue aesthetic.
 
 ### **Primary Accents**
 - **Brand Color**: `indigo-500` (#6366f1).
-- **Hover States**: `indigo-400` or `indigo-600`.
-- **Glow Effects**: `shadow-indigo-500/20`.
+- **Difficulty Rating (Active)**:
+    - **Easy**: `bg-emerald-500`, Glow: `shadow-emerald-500/40`.
+    - **Medium**: `bg-amber-500`, Glow: `shadow-amber-500/40`.
+    - **Hard**: `bg-rose-500`, Glow: `shadow-rose-500/40`.
+- **Glow Intensity**: Use `shadow-[0_0_20px_rgba(z,y,z,0.4)]` for active premium feedback.
 
 ### **Text Hierarchy**
 - **Headings**: `text-white` or `text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400`.
@@ -46,11 +49,18 @@ Design system and visual standards for the Dark Blue aesthetic.
 
 ## 4. Typography
 - **Font Family**: Geist Sans (Next.js default) or Inter.
+- **Vietnamese Support**: **CẤM TUYỆT ĐỐI** sử dụng `italic` cho các nhãn Tiếng Việt quan trọng. Nghiêng chữ kết hợp với dấu Tiếng Việt gây lỗi hiển thị nghiêm trọng. Thay vào đó, hãy dùng `font-black` (900) để nhấn mạnh.
 - **Scale**:
   - `text-4xl`/`text-5xl`: Main Landing Title.
   - `text-2xl`: Section Headers / Auth Titles.
   - `text-sm`/`text-base`: Body text.
-## 5. Layout & Navigation Patterns
+
+## 5. Layout & Spacing
+- **Zero-Overlap**: Keep distance stable.
+    - Card to Stats: `mt-6`.
+    - Stats to Buttons: `mt-4`.
+    - Button Row: `gap-4`.
+- **Viewport Lock**: Always use `h-[calc(100vh-OFFSET)]` with `overflow-hidden` on parents.
 
 ### **AppShell Architecture**
 - **Desktop**: Persistent side-navigation (`AppSidebar`) with transition width (`64px` to `224px`).

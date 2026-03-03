@@ -11,6 +11,8 @@
 - [x] **Admin Hotkey**: `Shift + M` integration to instantly open the Admin management portal.
 - [x] **Public Library**: Specialized view for system-wide flashcard sets.
 - [x] **Autonomous Category System**: Intelligent classification engine with semantic icon mapping (50+ icons), auto-translation, and database synchronization.
+- [x] **Community Voting System**: Real-time difficulty rating (Easy/Medium/Hard) with aggregated community statistics.
+- [x] **Study Mode Premium**: Zero-overlap layout with fixed viewports, high-fidelity spring animations, and optimized Vietnamese typography.
 
 ### **In Progress**
 - [ ] **Flashcard Export**: PDF/Markdown export for offline study.
@@ -46,3 +48,14 @@
     - **Semantic Engine**: Implemented `getBestIcon` using regex-based keyword matching for 50+ Lucide icons, prioritizing specific topics (Rocket, Beaker, Banknote).
     - **Migration API**: Developed a robust synchronizer that audits existing records, creates missing categories on-the-fly, and 'polishes' metadata (translating English names and upgrading icons).
 - **Result**: Data integrity is maintained automatically during AI generation and history browsing. All sets now feature professional, semantically-correct visuals.
+### **5. Flashcard Flip Stability (Zero-Jitter)**
+- **Problem**: Flashcards would "jump" or shift slightly during 3D rotations due to browser layout recalculations.
+- **Solution**: 
+    - Forced **Absolute Anchoring** using `absolute inset-0 top-0 left-0`.
+    - Locked container heights to prevent "growth" when secondary face content was longer.
+- **Outcome**: 100% static positioning during transitions.
+
+### **6. Framer Motion "Invariant Keyframes" Fix**
+- **Problem**: React error: "Only two keyframes currently supported with spring" when using arrays like `[1, 1.4, 1]` with `type: "spring"`.
+- **Solution**: Removed the array notation. Shared a standardized physics config (`stiffness: 400, damping: 25`) and let the spring handle the oscillation to the target value.
+- **Outcome**: Smooth, crash-free "premium" feel.
