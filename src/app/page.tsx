@@ -26,6 +26,7 @@ import {
   AlertTriangle,
   ArrowRight,
   RefreshCcw,
+  X,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabase";
@@ -42,6 +43,7 @@ import StudyMode from "@/components/display-modes/StudyMode";
 import ListMode from "@/components/display-modes/ListMode";
 import DisplayController, { DisplayMode } from "@/components/DisplayController";
 import FlashcardSkeleton from "@/components/FlashcardSkeleton";
+import { smartScrollToTop, containerVariants } from "@/utils/ui-animations";
 
 export default function Home() {
   return (
@@ -527,7 +529,7 @@ function FlashcardsApp() {
 
 
       {/* ── Scrollable content ─────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto">
+      <div id="main-scroll-container" className="flex-1 overflow-y-auto">
 
         {/* ─── HOME ──────────────────────────────────────────────────────── */}
         {activeTab === "home" && (
@@ -591,8 +593,14 @@ function FlashcardsApp() {
             </div>
 
             {/* Flashcard Display */}
-            {flashcards.length > 0 && (
-              <div className={isFocusMode ? "fixed inset-0 z-[100] bg-slate-950 flex flex-col p-4 md:p-8 animate-in fade-in duration-500 overflow-hidden" : "space-y-6"}>
+            <AnimatePresence mode="wait">
+              {flashcards.length > 0 && (
+                <div
+                  id="study-area-root"
+                  className={isFocusMode ? "fixed inset-0 z-[100] bg-slate-950 flex flex-col p-4 md:p-8 animate-in fade-in duration-500 overflow-hidden" : "space-y-6 relative"}
+                >
+                  {/* Backdrop Overlay for non-focus mode to emphasize study area */}
+                  {!isFocusMode && <div className="absolute inset-0 bg-slate-950/20 -z-10 rounded-2xl backdrop-blur-[2px]" />}
                 {isFocusMode && (
                   <>
                     {/* Animated Ambient Background */}
@@ -628,13 +636,36 @@ function FlashcardsApp() {
                     />
                   </div>
                 </div>
-                <div className={`flex-1 relative z-10 flex flex-col ${isFocusMode ? "h-full bg-white/5 backdrop-blur-3xl border border-white/10 rounded-3xl shadow-2xl p-4 md:p-8 overflow-y-auto" : "h-full min-h-[400px]"}`}>
+
+                  {/* Close Button - Positioned absolutely for mobile safety & larger touch target */}
+                  {!isFocusMode && (
+                    <button
+                      onClick={() => {
+                        setTopic("");
+                        setFlashcards([]);
+                        // Small timeout to allow exit animation to begin
+                        setTimeout(() => window.scrollTo({ top: document.getElementById('main-scroll-container')?.offsetTop || 0, behavior: 'smooth' }), 100);
+                      }}
+                      className="absolute top-2 right-2 md:top-4 md:right-4 z-[60] p-3 hover:bg-slate-700/80 rounded-xl text-slate-400 hover:text-white transition-all border border-slate-700/50 bg-slate-800/90 shadow-xl active:scale-90"
+                      title="Đóng"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  )}
+                  <motion.div
+                    className={`flex-1 relative z-10 flex flex-col ${isFocusMode ? "h-full bg-white/5 backdrop-blur-3xl border border-white/10 rounded-3xl shadow-2xl p-4 md:p-8 overflow-y-auto" : "h-full min-h-[400px]"}`}
+                    variants={containerVariants}
+                    initial="hidden"
+                    animate="visible"
+                    exit="exit"
+                  >
                   {mode === "grid" && <GridMode flashcards={flashcards} />}
                   {mode === "study" && <StudyMode flashcards={flashcards} />}
                   {mode === "list" && <ListMode flashcards={flashcards} />}
+                  </motion.div>
                 </div>
-              </div>
-            )}
+              )}
+            </AnimatePresence>
 
             {/* History */}
             {(loadingHistory || recentSets.length > 0) && (
@@ -726,13 +757,22 @@ function FlashcardsApp() {
                       <FlashcardSkeleton key={`history-skeleton-${i}`} />
                     ))
                   ) : (
-                    filteredSets.map(s => (
-                      <motion.div
-                        key={s.id}
-                        onClick={() => { setTopic(s.topic); setFlashcards(s.cards); }}
-                        className="text-left bg-zinc-900/40 p-5 rounded-2xl border border-white/5 hover:border-indigo-500/50 transition-all group relative cursor-pointer h-full"
-                        initial={{ opacity: 1 }}
-                      >
+                      filteredSets.map(s => {
+                        const isActive = topic === s.topic;
+                        return (
+                          <motion.div
+                            key={s.id}
+                            onClick={() => {
+                              setTopic(s.topic);
+                              setFlashcards(s.cards);
+                              smartScrollToTop();
+                            }}
+                            className={`text-left p-5 rounded-2xl border transition-all group relative cursor-pointer h-full ${isActive
+                              ? "bg-indigo-500/10 border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.2)]"
+                              : "bg-zinc-900/40 border-white/5 hover:border-indigo-500/50"
+                              }`}
+                            initial={{ opacity: 1 }}
+                          >
                         <div className="flex items-start justify-between gap-2 mb-2">
                           <div className="font-bold text-slate-200 break-words leading-snug group-hover:text-indigo-400 flex-1">
                             {s.topic}
@@ -757,7 +797,8 @@ function FlashcardsApp() {
                           </div>
                         </div>
                       </motion.div>
-                    ))
+                        );
+                      })
                   )}
                 </motion.div>
               </div>

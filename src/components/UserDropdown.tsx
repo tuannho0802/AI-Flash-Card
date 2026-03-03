@@ -4,7 +4,6 @@ import {
   useState,
   useRef,
 } from "react";
-import { Profile } from "@/types/flashcard";
 import { supabase } from "@/lib/supabase";
 import { User } from "@supabase/supabase-js";
 import {
