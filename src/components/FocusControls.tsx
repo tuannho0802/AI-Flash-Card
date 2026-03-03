@@ -413,48 +413,38 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 50, opacity: 0 }}
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[110] flex items-center gap-4 bg-slate-900/80 backdrop-blur-xl border border-white/10 p-3 rounded-2xl shadow-2xl"
+            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[110] flex items-center gap-3 bg-slate-900/60 backdrop-blur-2xl border border-white/10 p-2.5 rounded-2xl shadow-2xl"
             onMouseEnter={() => setIsVisible(true)}
           >
             {/* Pomodoro Timer */}
-            <div className="flex items-center gap-2 bg-slate-800/50 rounded-xl px-3 py-1.5 border border-slate-700/50">
+            <div className="flex items-center gap-2 bg-white/5 rounded-xl px-2.5 py-1.5 border border-white/5">
               <button
                 onClick={toggleTimer}
                 className={`transition-colors ${timerActive ? "text-rose-400 hover:text-rose-300" : "text-slate-400 hover:text-white"}`}
                 title="Bật/Tắt Pomodoro"
               >
-                <Clock className={`w-4 h-4 ${timerActive ? "animate-pulse" : ""}`} />
+                <Clock className={`w-3.5 h-3.5 ${timerActive ? "animate-pulse" : ""}`} />
               </button>
               <span
-                className="text-sm font-mono font-bold text-slate-200 tabular-nums select-none"
+                className="text-xs font-sans font-bold text-slate-200 tabular-nums select-none"
                 onDoubleClick={resetTimer}
               >
                 {formatTime(timeLeft)}
               </span>
             </div>
 
-            <div className="w-px h-6 bg-slate-700/50" />
+            <div className="w-px h-5 bg-white/10" />
 
             {/* Ambient Player */}
-            <div className="flex items-center gap-3 relative">
-              {/* Mood Selector Trigger — div to avoid nested-button HTML error */}
+            <div className="flex items-center gap-2 relative">
               <div
                 onClick={() => setShowMoodMenu(!showMoodMenu)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-800/50 hover:bg-slate-700/50 text-indigo-300 transition-colors border border-slate-700/50 cursor-pointer select-none"
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-indigo-300 transition-colors border border-white/5 cursor-pointer select-none"
               >
                 {getMoodIcon(currentMood.icon)}
-                <span className="text-xs font-bold hidden sm:inline-block">{currentMood.label}</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider hidden sm:inline-block font-sans">{currentMood.label}</span>
                 {isLinkDead && (
                   <AlertTriangle className="w-3.5 h-3.5 text-rose-500 animate-pulse ml-1" />
-                )}
-                {activeMoodId === "Custom" && customUrl && (
-                  <span
-                    onClick={handleResetCustomUrl}
-                    className="ml-1 p-1 hover:bg-white/20 rounded-lg text-indigo-200 transition-colors cursor-pointer"
-                    title="Đổi Link"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                  </span>
                 )}
               </div>
 
@@ -465,7 +455,7 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
                     initial={{ opacity: 0, y: 10, scale: 0.95 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                    className="absolute bottom-full left-0 mb-3 w-48 bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-2xl"
+                    className="absolute bottom-full left-0 mb-3 w-48 bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-xl overflow-hidden shadow-2xl z-50"
                   >
                     {moods.map((mood: MoodConfig) => (
                       <button
@@ -477,13 +467,13 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
                           if (mood.id === "Custom" && !customUrl) setShowCustomInput(true);
                           if (!isPlaying) setTimeout(togglePlay, 100);
                         }}
-                        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${activeMoodId === mood.id
+                        className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${activeMoodId === mood.id
                           ? "bg-indigo-500/20 text-indigo-300"
-                          : "text-slate-300 hover:bg-slate-700/50"
+                          : "text-slate-300 hover:bg-white/10"
                           }`}
                       >
                         {getMoodIcon(mood.icon)}
-                        <span className="text-sm font-medium">{mood.label}</span>
+                        <span className="text-xs font-bold font-sans uppercase tracking-tight">{mood.label}</span>
                       </button>
                     ))}
                   </motion.div>
@@ -505,7 +495,7 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
                       onChange={(e) => setTempUrl(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleApplyCustomUrl()}
                       placeholder="Dán link MP3 hoặc YouTube..."
-                      className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white outline-none focus:ring-1 focus:ring-indigo-500"
+                      className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:ring-1 focus:ring-indigo-500"
                       autoFocus
                     />
                     <button
@@ -516,7 +506,7 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
                     </button>
                     <button
                       onClick={() => setShowCustomInput(false)}
-                      className="p-2 hover:bg-slate-800 rounded-lg text-slate-400"
+                      className="p-2 hover:bg-white/10 rounded-lg text-slate-400"
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -524,48 +514,31 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
                 )}
               </AnimatePresence>
 
-              {/* Play/Pause — Always clean UI */}
               <button
                 onClick={togglePlay}
                 disabled={currentMood.id === "Silence"}
-                className="w-8 h-8 flex items-center justify-center rounded-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white transition-all active:scale-95"
+                className="w-7 h-7 flex items-center justify-center rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white transition-all active:scale-90"
                 title="Phát/Tạm dừng"
               >
                 {isPlaying ? (
-                  <Pause className="w-4 h-4 fill-current" />
+                  <Pause className="w-3.5 h-3.5 fill-current" />
                 ) : (
-                  <Play className="w-4 h-4 fill-current ml-0.5" />
+                    <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
                 )}
               </button>
 
-              {/* Shuffle / Next Track */}
               <button
                 onClick={handleShuffle}
                 disabled={activeMoodId === "Silence"}
-                className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all active:scale-95 group/shuffle"
-                title="Chuyển nguồn nhạc ngẫu nhiên"
+                className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 transition-all active:scale-90"
+                title="Ngẫu nhiên"
               >
-                <motion.div
-                  animate={isShuffling ? { rotate: 360 } : { rotate: 0 }}
-                  transition={{ duration: 0.5, ease: "easeInOut" }}
-                >
-                  <Shuffle className="w-4 h-4" />
-                </motion.div>
+                <Shuffle className={`w-3.5 h-3.5 ${isShuffling ? "animate-spin" : ""}`} />
               </button>
 
-              {/* Next Mood */}
-              <button
-                onClick={nextMood}
-                className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all active:scale-95"
-                title="Chuyển Mood tiếp theo"
-              >
-                <SkipForward className="w-4 h-4" />
-              </button>
-
-              {/* Volume */}
-              <div className="flex items-center gap-2 ml-2 group">
-                <button onClick={() => setIsMuted(!isMuted)} className="text-slate-400 hover:text-white">
-                  {isMuted || volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+              <div className="flex items-center gap-1 ml-1 group">
+                <button onClick={() => setIsMuted(!isMuted)} className="text-slate-400 hover:text-white transition-colors">
+                  {isMuted || volume === 0 ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
                 </button>
                 <input
                   type="range"
@@ -578,21 +551,21 @@ export default function FocusControls({ onExitFocus, isFocusMode }: FocusControl
                     localStorage.setItem("focusVolume", e.target.value);
                     if (isMuted) setIsMuted(false);
                   }}
-                  className="w-0 opacity-0 group-hover:w-20 group-hover:opacity-100 transition-all duration-300 accent-indigo-500 h-1.5 rounded-full bg-slate-700 appearance-none"
+                  className="w-0 opacity-0 group-hover:w-16 group-hover:opacity-100 transition-all duration-300 accent-indigo-500 h-1 rounded-full bg-white/20 appearance-none cursor-pointer"
                 />
               </div>
             </div>
 
-            <div className="w-px h-6 bg-slate-700/50" />
+            <div className="w-px h-5 bg-white/10" />
 
             {/* Exit Focus */}
             <button
               onClick={onExitFocus}
-              className="px-3 py-1.5 flex items-center gap-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors border border-rose-500/20"
-              title="Exit Focus Mode"
+              className="px-2.5 py-1.5 flex items-center gap-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-all border border-rose-500/20 active:scale-95 group/exit"
+              title="Thoát Focus Mode"
             >
-              <Minimize2 className="w-4 h-4" />
-              <span className="text-sm font-bold hidden sm:inline-block">Thoát</span>
+              <Minimize2 className="w-3.5 h-3.5 group-hover/exit:scale-110 transition-transform" />
+              <span className="text-[10px] font-bold uppercase tracking-widest hidden xs:inline-block font-sans">THOÁT</span>
             </button>
           </motion.div>
         )}

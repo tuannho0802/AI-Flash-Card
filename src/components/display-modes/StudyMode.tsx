@@ -20,10 +20,14 @@ import { useLearningProgress, Difficulty } from "@/hooks/useLearningProgress";
 
 interface StudyModeProps {
   flashcards: Flashcard[];
+  onModeChange?: (mode: any) => void;
+  isFocusMode?: boolean;
 }
 
 export default function StudyMode({
   flashcards,
+  onModeChange,
+  isFocusMode = false,
 }: StudyModeProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isCardFlipped, setIsCardFlipped] = useState(false);
@@ -173,35 +177,37 @@ export default function StudyMode({
   }, [handleNext, handlePrev, handleRate, showConfirmModal]);
 
   return (
-    <div className="flex flex-col items-center w-full max-w-2xl mx-auto max-h-[calc(100vh-160px)] px-4 gap-2 overflow-hidden py-2">
+    <div className={`flex flex-col items-center w-full max-w-2xl mx-auto px-4 overflow-hidden ${isFocusMode ? "max-h-screen py-0 gap-1" : "max-h-[calc(100vh-160px)] py-2 gap-2"}`}>
       {/* Progress Bar - Minimalist */}
-      <div className="w-full shrink-0">
-        <div className="flex justify-between text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 font-sans">
-          <span>TIẾN ĐỘ</span>
-          <span>
-            {Math.round(
-              ((currentIndex + 1) /
-                flashcards.length) *
+      {!isFocusMode && (
+        <div className="w-full shrink-0">
+          <div className="flex justify-between text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 font-sans">
+            <span>TIẾN ĐỘ</span>
+            <span>
+              {Math.round(
+                ((currentIndex + 1) /
+                  flashcards.length) *
                 100,
-            )}
-            %
-          </span>
+              )}
+              %
+            </span>
+          </div>
+          <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
+            <motion.div
+              className="h-full bg-linear-to-r from-blue-500 to-indigo-600 shadow-[0_0_8px_rgba(79,70,229,0.3)]"
+              initial={{ width: 0 }}
+              animate={{
+                width: `${((currentIndex + 1) / flashcards.length) * 100}%`,
+              }}
+              transition={{ duration: 0.3 }}
+            />
+          </div>
         </div>
-        <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
-          <motion.div
-            className="h-full bg-linear-to-r from-blue-500 to-indigo-600 shadow-[0_0_8px_rgba(79,70,229,0.3)]"
-            initial={{ width: 0 }}
-            animate={{
-              width: `${((currentIndex + 1) / flashcards.length) * 100}%`,
-            }}
-            transition={{ duration: 0.3 }}
-          />
-        </div>
-      </div>
+      )}
 
-      {/* Card Area - Max-h 50vh with internal scroll via isCompact */}
-      <div className="w-full flex-1 min-h-0 flex flex-col items-center justify-center relative py-1">
-        <div className="w-full max-h-[50vh] aspect-[4/3] flex justify-center">
+      {/* Card Area - Max-h 50vh or 55vh with internal scroll via isCompact */}
+      <div className={`w-full flex-1 min-h-0 flex flex-col items-center justify-center relative ${isFocusMode ? "py-0" : "py-1"}`}>
+        <div className={`w-full aspect-[4/3] flex justify-center ${isFocusMode ? "max-h-[55vh]" : "max-h-[50vh]"}`}>
           <AnimatePresence mode="wait">
             <motion.div
               key={currentIndex}
@@ -233,16 +239,16 @@ export default function StudyMode({
       </div>
 
       {/* Community Stats Section - Compact & Attached to card bottom */}
-      <div className="w-full shrink-0 min-h-[50px]">
+      <div className={`w-full shrink-0 min-h-[40px] ${isFocusMode ? "mb-1" : "mb-0"}`}>
         <AnimatePresence>
           {isCardFlipped && currentStats && (
             <motion.div
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className="bg-slate-800/30 backdrop-blur-sm rounded-xl p-3 border border-slate-700/50"
+              className={`bg-slate-800/30 backdrop-blur-sm rounded-xl border border-slate-700/50 ${isFocusMode ? "p-2" : "p-3"}`}
             >
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-1.5">
                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest font-sans">
                   ĐÁNH GIÁ CỘNG ĐỒNG ({currentStats.total_votes})
                 </span>
@@ -279,7 +285,7 @@ export default function StudyMode({
       {/* Interaction Controls */}
       <div className="w-full shrink-0 flex flex-col items-center">
         {/* Voting Row */}
-        <div className="w-full h-[60px] flex items-center justify-center relative">
+        <div className={`w-full flex items-center justify-center relative ${isFocusMode ? "h-[50px]" : "h-[60px]"}`}>
           <AnimatePresence>
             {showConfirmModal && (
               <>
@@ -362,17 +368,17 @@ export default function StudyMode({
         </div>
 
         {/* Navigation Controls - Minimalist */}
-        <div className="w-full flex items-center justify-between gap-4 mt-2 mb-4">
+        <div className={`w-full flex items-center justify-between gap-4 font-sans ${isFocusMode ? "mt-1 mb-2" : "mt-2 mb-4"}`}>
           <button
             onClick={handlePrev}
             disabled={currentIndex === 0 || showConfirmModal}
-            className="p-3 rounded-xl bg-slate-800/50 border border-slate-700/50 text-slate-400 disabled:opacity-20 active:scale-90 transition-all"
+            className={`${isFocusMode ? "p-2" : "p-3"} rounded-xl bg-slate-800/50 border border-slate-700/50 text-slate-400 disabled:opacity-20 active:scale-90 transition-all`}
           >
-            <ChevronLeft className="w-5 h-5" />
+            <ChevronLeft className={`${isFocusMode ? "w-4 h-4" : "w-5 h-5"}`} />
           </button>
 
           <div className="flex flex-col items-center">
-            <span className="text-xl font-black text-slate-100 tabular-nums">
+            <span className={`${isFocusMode ? "text-lg" : "text-xl"} font-black text-slate-100 tabular-nums`}>
               {currentIndex + 1} <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest ml-1">/ {flashcards.length}</span>
             </span>
           </div>
@@ -380,9 +386,9 @@ export default function StudyMode({
           <button
             onClick={handleNext}
             disabled={currentIndex === flashcards.length - 1 || showConfirmModal}
-            className="p-3 rounded-xl bg-indigo-600 border border-indigo-400/20 text-white shadow-lg shadow-indigo-500/20 disabled:opacity-20 active:scale-90 transition-all font-sans"
+            className={`${isFocusMode ? "p-2" : "p-3"} rounded-xl bg-indigo-600 border border-indigo-400/20 text-white shadow-lg shadow-indigo-500/20 disabled:opacity-20 active:scale-90 transition-all font-sans`}
           >
-            <ChevronRight className="w-5 h-5" />
+            <ChevronRight className={`${isFocusMode ? "w-4 h-4" : "w-5 h-5"}`} />
           </button>
         </div>
       </div>

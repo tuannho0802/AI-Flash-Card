@@ -653,7 +653,7 @@ function FlashcardsApp() {
               {flashcards.length > 0 && (
                 <div
                   id="study-area-root"
-                  className={isFocusMode ? "fixed inset-0 z-[100] bg-slate-950 flex flex-col p-4 md:p-8 animate-in fade-in duration-500 overflow-hidden" : "space-y-6 relative max-w-full mx-auto"}
+                  className={isFocusMode ? "fixed inset-0 z-[100] bg-slate-950 flex flex-col p-2 md:p-4 animate-in fade-in duration-500 overflow-hidden" : "space-y-6 relative max-w-full mx-auto"}
                 >
                   {/* Backdrop Overlay for non-focus mode to emphasize study area */}
                   {!isFocusMode && <div className="absolute inset-0 bg-slate-950/20 -z-10 rounded-2xl backdrop-blur-[2px]" />}
@@ -671,22 +671,22 @@ function FlashcardsApp() {
                     />
                   </>
                 )}
-                  <div className={`p-4 rounded-xl border relative z-10 ${isFocusMode ? "bg-white/5 backdrop-blur-xl border-white/10 shadow-2xl mb-6" : "bg-slate-800 border-slate-700 shadow-sm"}`}>
-                    <div className="flex flex-col gap-4">
-                      {/* Header Row: Topic & Close */}
-                      <div className="flex justify-between items-center w-full min-w-0">
-                        <div className={isFocusMode ? "hidden" : "flex items-center gap-2 min-w-0 mr-4"}>
-                          <BrainCircuit className="text-indigo-400 shrink-0" />
-                          <div className="min-w-0">
-                            <h2 className="font-bold text-white uppercase tracking-tight truncate max-w-[140px] xs:max-w-none">{topic}</h2>
-                            <p className="text-[10px] sm:text-xs text-slate-500">{flashcards.length} cards</p>
+                  {!isFocusMode && (
+                    <div className="p-4 rounded-xl border relative z-10 bg-slate-800 border-slate-700 shadow-sm">
+                      <div className="flex flex-col gap-4">
+                        {/* Header Row: Topic & Close */}
+                        <div className="flex justify-between items-center w-full min-w-0">
+                          <div className="flex items-center gap-2 min-w-0 mr-4">
+                            <BrainCircuit className="text-indigo-400 shrink-0" />
+                            <div className="min-w-0">
+                              <h2 className="font-bold text-white uppercase tracking-tight truncate max-w-[140px] xs:max-w-none">{topic}</h2>
+                              <p className="text-[10px] sm:text-xs text-slate-500">{flashcards.length} cards</p>
+                            </div>
                           </div>
-                        </div>
 
-                        <div className="flex items-center gap-3 shrink-0">
-                          {savedSuccess && <span className="text-emerald-400 text-[10px] font-bold px-2 py-0.5 bg-emerald-500/10 rounded-full border border-emerald-500/20 hidden xs:inline">SAVED</span>}
+                          <div className="flex items-center gap-3 shrink-0">
+                            {savedSuccess && <span className="text-emerald-400 text-[10px] font-bold px-2 py-0.5 bg-emerald-500/10 rounded-full border border-emerald-500/20 hidden xs:inline">SAVED</span>}
 
-                          {!isFocusMode && (
                             <button
                               onClick={() => {
                                 const currentId = selectedSetId;
@@ -711,32 +711,31 @@ function FlashcardsApp() {
                               <X className="w-3.5 h-3.5" />
                               <span className="text-[10px] font-bold uppercase tracking-wider">Đóng</span>
                             </button>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap justify-center gap-4 w-full max-w-full">
-                        <div className="flex flex-col gap-2 w-full xs:w-auto min-w-[200px]">
-                          <div className="flex justify-between items-center px-1">
-                            <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Số lượng học</span>
-                            <span className="text-xs font-bold text-indigo-400">{studyLimit}/{flashcards.length} thẻ</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="1"
-                            max={flashcards.length}
-                            step="1"
-                            value={studyLimit}
-                            onChange={(e) => setStudyLimit(parseInt(e.target.value))}
-                            className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500 hover:accent-indigo-400 transition-all"
-                          />
-                          <div className="flex justify-between text-[9px] text-slate-500 font-medium uppercase px-0.5">
-                            <span>Tối thiểu</span>
-                            <span>Tất cả</span>
                           </div>
                         </div>
 
-                        <div className="h-px w-full xs:h-10 xs:w-px bg-slate-700/50 hidden xs:block" />
+                        <div className="flex flex-wrap justify-center gap-4 w-full max-w-full">
+                          <div className="flex flex-col gap-2 w-full xs:w-auto min-w-[200px]">
+                            <div className="flex justify-between items-center px-1">
+                              <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Số lượng học</span>
+                              <span className="text-xs font-bold text-indigo-400">{studyLimit}/{flashcards.length} thẻ</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="1"
+                              max={flashcards.length}
+                              step="1"
+                              value={studyLimit}
+                              onChange={(e) => setStudyLimit(parseInt(e.target.value))}
+                              className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500 hover:accent-indigo-400 transition-all"
+                            />
+                            <div className="flex justify-between text-[9px] text-slate-500 font-medium uppercase px-0.5">
+                              <span>Tối thiểu</span>
+                              <span>Tất cả</span>
+                            </div>
+                          </div>
+
+                          <div className="h-px w-full xs:h-10 xs:w-px bg-slate-700/50 hidden xs:block" />
 
                           <DisplayController
                             currentMode={mode}
@@ -746,10 +745,11 @@ function FlashcardsApp() {
                             loadingNew={loading}
                             onToggleFocus={() => setIsFocusMode(!isFocusMode)}
                             isFocusMode={isFocusMode}
-                        />
+                          />
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
 
                   <motion.div
                     className={`flex-1 relative z-10 flex flex-col ${isFocusMode ? "h-full bg-white/5 backdrop-blur-3xl border border-white/10 rounded-3xl shadow-2xl p-4 md:p-8 overflow-hidden" : "h-full min-h-[400px]"}`}
@@ -759,7 +759,7 @@ function FlashcardsApp() {
                     exit="exit"
                   >
                     {mode === "grid" && <GridMode flashcards={activeStudyCards} />}
-                    {mode === "study" && <StudyMode flashcards={activeStudyCards} />}
+                    {mode === "study" && <StudyMode flashcards={activeStudyCards} onModeChange={handleModeChange} isFocusMode={isFocusMode} />}
                     {mode === "list" && <ListMode flashcards={activeStudyCards} />}
                   </motion.div>
                 </div>
