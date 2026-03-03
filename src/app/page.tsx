@@ -94,6 +94,12 @@ function FlashcardsApp() {
   const [sanitizeProgress, setSanitizeProgress] = useState<{ current: number, total: number, topic: string } | null>(null);
   const [selectedSetId, setSelectedSetId] = useState<string | null>(null);
 
+  // ── NEW: Pagination & Study Selection ─────────────────────────────────────
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState(12);
+  const [totalHistoryCount, setTotalHistoryCount] = useState(0);
+  const [studyLimit, setStudyLimit] = useState(0);
+
   const searchParams = useSearchParams();
 
   // ── Auth & Init ──────────────────────────────────────────────────────────
@@ -134,27 +140,61 @@ function FlashcardsApp() {
     setIsSidebarCollapsed(sidebarCollapsed);
   }, []);
 
-  const fetchRecentSets = useCallback(async () => {
-    let query = supabase
-      .from("flashcard_sets")
-      .select("*, categories(*)")
-      .order("created_at", { ascending: false })
-      .limit(24);
-    if (userId) {
-      query = query.or(`user_id.eq.${userId},user_id.is.null`);
-    } else {
-      query = query.is("user_id", null);
-    }
+  const fetchRecentSets = useCallback(async (page = 1) => {
     setLoadingHistory(true);
     try {
-      const { data } = await query;
+      // Calculate range
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+
+      let query = supabase
+        .from("flashcard_sets")
+        .select("*, categories(*)", { count: "exact" }) // Get exact count for pagination
+        .order("created_at", { ascending: false })
+        .range(from, to);
+
+      if (userId) {
+        query = query.or(`user_id.eq.${userId},user_id.is.null`);
+      } else {
+        query = query.is("user_id", null);
+      }
+
+      const { data, count, error } = await query;
+
+      if (error) throw error;
+
       if (data) setRecentSets(data as FlashcardSet[]);
+      if (count !== null) setTotalHistoryCount(count);
+    } catch (err) {
+      console.error("Error fetching history:", err);
     } finally {
       setLoadingHistory(false);
     }
-  }, [supabase, userId]);
+  }, [supabase, userId, pageSize]);
 
-  useEffect(() => { fetchRecentSets(); }, [fetchRecentSets]);
+  useEffect(() => {
+    fetchRecentSets(currentPage);
+  }, [fetchRecentSets, currentPage]);
+
+  // Reset studyLimit when flashcards change (new set selected or generated)
+  useEffect(() => {
+    if (flashcards.length > 0) {
+      setStudyLimit(flashcards.length);
+    } else {
+      setStudyLimit(0);
+    }
+  }, [flashcards]);
+
+  // Derived state for the actual cards being studied
+  const activeStudyCards = useMemo(() => {
+    if (flashcards.length === 0) return [];
+    if (studyLimit === 0 || studyLimit >= flashcards.length) return flashcards;
+
+    // For limited sessions, we always shuffle and slice
+    // Note: We use a deterministic-ish approach by not shuffling on every render
+    // but the user's manual shuffle button still works on the base flashcards set.
+    return flashcards.slice(0, studyLimit);
+  }, [flashcards, studyLimit]);
 
   // ── Derived data ─────────────────────────────────────────────────────────
   const uniqueCategories = useMemo(() => {
@@ -662,9 +702,29 @@ function FlashcardsApp() {
                         </div>
                       </div>
 
-                      {/* Controls Row: Centered Action Buttons */}
-                      <div className="flex justify-center w-full">
-                        <div className="flex flex-wrap justify-center gap-2 w-full max-w-full">
+                      <div className="flex flex-wrap justify-center gap-4 w-full max-w-full">
+                        <div className="flex flex-col gap-2 w-full xs:w-auto min-w-[200px]">
+                          <div className="flex justify-between items-center px-1">
+                            <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Số lượng học</span>
+                            <span className="text-xs font-bold text-indigo-400">{studyLimit}/{flashcards.length} thẻ</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="1"
+                            max={flashcards.length}
+                            step="1"
+                            value={studyLimit}
+                            onChange={(e) => setStudyLimit(parseInt(e.target.value))}
+                            className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500 hover:accent-indigo-400 transition-all"
+                          />
+                          <div className="flex justify-between text-[9px] text-slate-500 font-medium uppercase px-0.5">
+                            <span>Tối thiểu</span>
+                            <span>Tất cả</span>
+                          </div>
+                        </div>
+
+                        <div className="h-px w-full xs:h-10 xs:w-px bg-slate-700/50 hidden xs:block" />
+
                           <DisplayController
                             currentMode={mode}
                             onModeChange={handleModeChange}
@@ -673,11 +733,10 @@ function FlashcardsApp() {
                             loadingNew={loading}
                             onToggleFocus={() => setIsFocusMode(!isFocusMode)}
                             isFocusMode={isFocusMode}
-                          />
-                        </div>
+                        />
                       </div>
+                    </div>
                   </div>
-                </div>
 
                   <motion.div
                     className={`flex-1 relative z-10 flex flex-col ${isFocusMode ? "h-full bg-white/5 backdrop-blur-3xl border border-white/10 rounded-3xl shadow-2xl p-4 md:p-8 overflow-y-auto" : "h-full min-h-[400px]"}`}
@@ -686,9 +745,9 @@ function FlashcardsApp() {
                     animate="visible"
                     exit="exit"
                   >
-                  {mode === "grid" && <GridMode flashcards={flashcards} />}
-                  {mode === "study" && <StudyMode flashcards={flashcards} />}
-                  {mode === "list" && <ListMode flashcards={flashcards} />}
+                    {mode === "grid" && <GridMode flashcards={activeStudyCards} />}
+                    {mode === "study" && <StudyMode flashcards={activeStudyCards} />}
+                    {mode === "list" && <ListMode flashcards={activeStudyCards} />}
                   </motion.div>
                 </div>
               )}
@@ -830,6 +889,67 @@ function FlashcardsApp() {
                       })
                   )}
                 </motion.div>
+
+                {/* Pagination Controls */}
+                {!loadingHistory && totalHistoryCount > pageSize && (
+                  <div className="mt-10 flex flex-col sm:flex-row items-center justify-between gap-4 py-6 border-t border-slate-800/50">
+                    <div className="text-xs text-slate-500 font-medium whitespace-nowrap">
+                      Trang <span className="text-slate-300">{currentPage}</span> / <span className="text-slate-300">{Math.ceil(totalHistoryCount / pageSize)}</span>
+                      <span className="mx-2 underline decoration-indigo-500/30 underline-offset-4">Tổng {totalHistoryCount} bộ</span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-2 sm:pb-0 max-w-full custom-scrollbar">
+                      <button
+                        onClick={() => {
+                          setCurrentPage(1);
+                          document.getElementById('main-scroll-container')?.scrollTo({ top: document.querySelector('.pt-8.border-t')?.parentElement?.offsetTop || 0, behavior: 'smooth' });
+                        }}
+                        disabled={currentPage === 1}
+                        className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-[10px] text-slate-400 hover:text-white hover:bg-slate-700 disabled:opacity-30 transition-all font-bold shrink-0"
+                      >
+                        ĐẦU
+                      </button>
+
+                      <div className="flex items-center gap-1 mx-1 shrink-0">
+                        {Array.from({ length: Math.min(5, Math.ceil(totalHistoryCount / pageSize)) }).map((_, i) => {
+                          const totalPages = Math.ceil(totalHistoryCount / pageSize);
+                          let pageNum;
+                          if (totalPages <= 5) pageNum = i + 1;
+                          else {
+                            if (currentPage <= 3) pageNum = i + 1;
+                            else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + i;
+                            else pageNum = currentPage - 2 + i;
+                          }
+                          if (pageNum <= 0 || pageNum > totalPages) return null;
+
+                          return (
+                            <button
+                              key={`page-${pageNum}`}
+                              onClick={() => {
+                                setCurrentPage(pageNum);
+                                document.getElementById('main-scroll-container')?.scrollTo({ top: document.querySelector('.pt-8.border-t')?.parentElement?.offsetTop || 0, behavior: 'smooth' });
+                              }}
+                              className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold transition-all ${currentPage === pageNum ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'bg-slate-800 border border-slate-700 text-slate-400 hover:text-white hover:bg-slate-700'}`}
+                            >
+                              {pageNum}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setCurrentPage(Math.ceil(totalHistoryCount / pageSize));
+                          document.getElementById('main-scroll-container')?.scrollTo({ top: document.querySelector('.pt-8.border-t')?.parentElement?.offsetTop || 0, behavior: 'smooth' });
+                        }}
+                        disabled={currentPage >= Math.ceil(totalHistoryCount / pageSize)}
+                        className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-[10px] text-slate-400 hover:text-white hover:bg-slate-700 disabled:opacity-30 transition-all font-bold shrink-0"
+                      >
+                        CUỐI
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
