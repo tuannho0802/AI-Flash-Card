@@ -14,7 +14,12 @@ export default function FlashcardCard({
   className = "",
   isFlipped: controlledFlipped,
   onFlip,
-}: FlashcardCardProps & { isFlipped?: boolean; onFlip?: (flipped: boolean) => void }) {
+  isCompact = false,
+}: FlashcardCardProps & {
+  isFlipped?: boolean;
+  onFlip?: (flipped: boolean) => void;
+  isCompact?: boolean;
+}) {
   const [localFlipped, setLocalFlipped] = useState(false);
   const isFlipped = controlledFlipped !== undefined ? controlledFlipped : localFlipped;
 
@@ -32,9 +37,9 @@ export default function FlashcardCard({
         delay: index * 0.05,
         duration: 0.4,
       }}
-      className={`perspective-1000 w-full h-64 cursor-pointer group ${className}`}
+      className={`perspective-1000 w-full ${isCompact ? "h-full" : "h-64"} cursor-pointer group ${className}`}
       onClick={handleFlip}
-      whileHover={{ y: -8 }}
+      whileHover={isCompact ? undefined : { y: -8 }}
     >
       <motion.div
         className="relative w-full h-full"
@@ -53,31 +58,35 @@ export default function FlashcardCard({
         }}
       >
         {/* Front */}
-        <div className="absolute w-full h-full backface-hidden bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 flex items-center justify-center p-6 text-center group-hover:shadow-xl transition-shadow duration-300">
-          <div className="flex flex-col items-center gap-2">
-            <span className="text-xs uppercase tracking-wider text-gray-400 font-semibold">
-              Question
+        <div className="absolute w-full h-full backface-hidden bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 flex flex-col p-4 text-center group-hover:shadow-xl transition-shadow duration-300">
+          <div className="flex flex-col h-full">
+            <span className={`text-xs uppercase tracking-wider ${isCompact ? "text-slate-400 font-bold mb-2" : "text-gray-400 font-semibold mb-2"}`}>
+              {isCompact ? "CÂU HỎI" : "Question"}
             </span>
-            <p className="text-lg font-medium text-gray-800 dark:text-gray-100">
-              {card.front}
-            </p>
+            <div className={`flex-1 flex items-center justify-center ${isCompact ? "overflow-y-auto custom-scrollbar px-2" : ""}`}>
+              <p className={`${isCompact ? "text-xl font-bold" : "text-lg font-medium"} text-gray-800 dark:text-gray-100 leading-tight`}>
+                {card.front}
+              </p>
+            </div>
           </div>
         </div>
 
         {/* Back */}
         <div
-          className="absolute w-full h-full backface-hidden bg-linear-to-br from-indigo-50 to-blue-100 dark:from-indigo-900/40 dark:to-blue-900/40 rounded-xl shadow-md border border-indigo-200 dark:border-indigo-800 flex items-center justify-center p-6 text-center"
+          className="absolute w-full h-full backface-hidden bg-linear-to-br from-indigo-50 to-blue-100 dark:from-indigo-900/40 dark:to-blue-900/40 rounded-xl shadow-md border border-indigo-200 dark:border-indigo-800 flex flex-col p-4 text-center"
           style={{
             transform: "rotateY(180deg)",
           }}
         >
-          <div className="flex flex-col items-center gap-2">
-            <span className="text-xs uppercase tracking-wider text-indigo-400 dark:text-indigo-300 font-semibold">
-              Answer
+          <div className="flex flex-col h-full">
+            <span className={`text-xs uppercase tracking-wider ${isCompact ? "text-indigo-500 dark:text-indigo-400 font-bold mb-2" : "text-indigo-400 dark:text-indigo-300 font-semibold mb-2"}`}>
+              {isCompact ? "TRẢ LỜI" : "Answer"}
             </span>
-            <p className="text-lg font-medium text-indigo-900 dark:text-indigo-100">
-              {card.back}
-            </p>
+            <div className={`flex-1 flex items-center justify-center ${isCompact ? "overflow-y-auto custom-scrollbar px-2" : ""}`}>
+              <p className={`${isCompact ? "text-xl font-bold" : "text-lg font-medium"} text-indigo-900 dark:text-indigo-100 leading-tight`}>
+                {card.back}
+              </p>
+            </div>
           </div>
         </div>
       </motion.div>

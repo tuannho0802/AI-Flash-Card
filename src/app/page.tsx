@@ -752,7 +752,7 @@ function FlashcardsApp() {
                   </div>
 
                   <motion.div
-                    className={`flex-1 relative z-10 flex flex-col ${isFocusMode ? "h-full bg-white/5 backdrop-blur-3xl border border-white/10 rounded-3xl shadow-2xl p-4 md:p-8 overflow-y-auto" : "h-full min-h-[400px]"}`}
+                    className={`flex-1 relative z-10 flex flex-col ${isFocusMode ? "h-full bg-white/5 backdrop-blur-3xl border border-white/10 rounded-3xl shadow-2xl p-4 md:p-8 overflow-hidden" : "h-full min-h-[400px]"}`}
                     variants={containerVariants}
                     initial="hidden"
                     animate="visible"

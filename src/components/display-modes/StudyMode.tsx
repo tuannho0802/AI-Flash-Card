@@ -173,11 +173,11 @@ export default function StudyMode({
   }, [handleNext, handlePrev, handleRate, showConfirmModal]);
 
   return (
-    <div className="flex flex-col items-center justify-center w-full max-w-3xl mx-auto min-h-150 px-4">
-      {/* Progress Bar */}
-      <div className="w-full mb-8 max-w-xl">
-        <div className="flex justify-between text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">
-          <span>Progress</span>
+    <div className="flex flex-col items-center w-full max-w-2xl mx-auto max-h-[calc(100vh-160px)] px-4 gap-2 overflow-hidden py-2">
+      {/* Progress Bar - Minimalist */}
+      <div className="w-full shrink-0">
+        <div className="flex justify-between text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 font-sans">
+          <span>TIẾN ĐỘ</span>
           <span>
             {Math.round(
               ((currentIndex + 1) /
@@ -187,9 +187,9 @@ export default function StudyMode({
             %
           </span>
         </div>
-        <div className="w-full h-2.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+        <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
           <motion.div
-            className="h-full bg-linear-to-r from-blue-500 to-purple-600"
+            className="h-full bg-linear-to-r from-blue-500 to-indigo-600 shadow-[0_0_8px_rgba(79,70,229,0.3)]"
             initial={{ width: 0 }}
             animate={{
               width: `${((currentIndex + 1) / flashcards.length) * 100}%`,
@@ -199,239 +199,193 @@ export default function StudyMode({
         </div>
       </div>
 
-      {/* Card Area */}
-      <div className="w-full relative flex flex-col items-center">
-        <div className="w-full h-100 flex justify-center mb-6">
+      {/* Card Area - Max-h 50vh with internal scroll via isCompact */}
+      <div className="w-full flex-1 min-h-0 flex flex-col items-center justify-center relative py-1">
+        <div className="w-full max-h-[50vh] aspect-[4/3] flex justify-center">
           <AnimatePresence mode="wait">
             <motion.div
               key={currentIndex}
               initial={{
                 opacity: 0,
-                x: 50,
-                scale: 0.95,
+                x: 20,
               }}
               animate={{
                 opacity: 1,
                 x: 0,
-                scale: 1,
               }}
               exit={{
                 opacity: 0,
-                x: -50,
-                scale: 0.95,
+                x: -20,
               }}
-              transition={{ duration: 0.3 }}
-              className="w-full h-full max-w-xl"
+              transition={{ duration: 0.25 }}
+              className="w-full h-full"
             >
               <FlashcardCard
                 card={flashcards[currentIndex]}
-                className="h-full! text-2xl shadow-xl shadow-indigo-500/5"
+                className="shadow-2xl shadow-indigo-500/10"
                 isFlipped={isCardFlipped}
                 onFlip={setIsCardFlipped}
+                isCompact={true}
               />
             </motion.div>
           </AnimatePresence>
         </div>
+      </div>
 
-        {/* Community Stats Section (Moved outside of Card, above buttons) */}
-        <div className="w-full max-w-xl min-h-[70px]">
+      {/* Community Stats Section - Compact & Attached to card bottom */}
+      <div className="w-full shrink-0 min-h-[50px]">
+        <AnimatePresence>
+          {isCardFlipped && currentStats && (
+            <motion.div
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="bg-slate-800/30 backdrop-blur-sm rounded-xl p-3 border border-slate-700/50"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest font-sans">
+                  ĐÁNH GIÁ CỘNG ĐỒNG ({currentStats.total_votes})
+                </span>
+                <div className="flex gap-1">
+                  <div className="w-1 h-1 rounded-full bg-emerald-500" />
+                  <div className="w-1 h-1 rounded-full bg-amber-500" />
+                  <div className="w-1 h-1 rounded-full bg-rose-500" />
+                </div>
+              </div>
+              <div className="flex h-1.5 rounded-full overflow-hidden bg-slate-800/50">
+                <div
+                  className="h-full bg-emerald-500 transition-all duration-500"
+                  style={{ width: `${(currentStats.easy_count / currentStats.total_votes) * 100}%` }}
+                />
+                <div
+                  className="h-full bg-amber-500 transition-all duration-500"
+                  style={{ width: `${(currentStats.medium_count / currentStats.total_votes) * 100}%` }}
+                />
+                <div
+                  className="h-full bg-rose-500 transition-all duration-500"
+                  style={{ width: `${(currentStats.hard_count / currentStats.total_votes) * 100}%` }}
+                />
+              </div>
+              <div className="flex justify-between mt-1.5 text-[10px] font-bold text-slate-400 font-sans uppercase">
+                <span>DỄ: {Math.round((currentStats.easy_count / currentStats.total_votes) * 100)}%</span>
+                <span>VỪA: {Math.round((currentStats.medium_count / currentStats.total_votes) * 100)}%</span>
+                <span>KHÓ: {Math.round((currentStats.hard_count / currentStats.total_votes) * 100)}%</span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Interaction Controls */}
+      <div className="w-full shrink-0 flex flex-col items-center">
+        {/* Voting Row */}
+        <div className="w-full h-[60px] flex items-center justify-center relative">
           <AnimatePresence>
-            {isCardFlipped && currentStats && (
+            {showConfirmModal && (
+              <>
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  onClick={() => { setShowConfirmModal(false); setPendingVote(null); }}
+                  className="fixed inset-0 bg-black/40 backdrop-blur-[1px] z-[100]"
+                />
+                <div className="fixed inset-0 z-[110] flex items-center justify-center pointer-events-none px-4">
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="bg-slate-900 border border-slate-700/50 rounded-2xl p-6 shadow-2xl pointer-events-auto w-full max-w-[320px] text-center"
+                  >
+                    <p className="text-sm font-bold text-slate-100 uppercase tracking-wide mb-6 font-sans">
+                      Thay đổi đánh giá?
+                    </p>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => { setShowConfirmModal(false); setPendingVote(null); }}
+                        className="flex-1 py-3 rounded-xl bg-slate-800 text-slate-400 text-[10px] font-bold uppercase transition-all active:scale-95 font-sans"
+                      >
+                        HỦY
+                      </button>
+                      <button
+                        onClick={() => pendingVote && handleCommunityVote(pendingVote)}
+                        className="flex-1 py-3 rounded-xl bg-indigo-600 text-white text-[10px] font-bold uppercase shadow-lg shadow-indigo-500/20 transition-all active:scale-95 font-sans"
+                      >
+                        XÁC NHẬN
+                      </button>
+                    </div>
+                  </motion.div>
+                </div>
+              </>
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence mode="wait">
+            {!isCardFlipped ? (
               <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 5 }}
-                className="bg-slate-800/20 backdrop-blur-sm rounded-2xl p-4 border border-slate-700/50"
+                key="hint"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="text-slate-500 text-[10px] font-bold uppercase tracking-[0.2em] font-sans"
               >
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest font-sans">
-                    Đánh giá cộng đồng ({currentStats.total_votes})
-                  </span>
-                  <div className="flex gap-1.5">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.3)]" />
-                    <div className="w-1.5 h-1.5 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.3)]" />
-                    <div className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.3)]" />
-                  </div>
-                </div>
-                <div className="flex h-2 rounded-full overflow-hidden bg-slate-800/50">
-                  <div
-                    className="h-full bg-emerald-500 transition-all duration-700 ease-out"
-                    style={{ width: `${(currentStats.easy_count / currentStats.total_votes) * 100}%` }}
-                  />
-                  <div
-                    className="h-full bg-amber-500 transition-all duration-700 ease-out"
-                    style={{ width: `${(currentStats.medium_count / currentStats.total_votes) * 100}%` }}
-                  />
-                  <div
-                    className="h-full bg-rose-500 transition-all duration-700 ease-out"
-                    style={{ width: `${(currentStats.hard_count / currentStats.total_votes) * 100}%` }}
-                  />
-                </div>
-                <div className="flex justify-between mt-2.5 text-[10px] font-medium text-slate-400 font-sans">
-                  <span>Dễ: {Math.round((currentStats.easy_count / currentStats.total_votes) * 100)}%</span>
-                  <span>Vừa: {Math.round((currentStats.medium_count / currentStats.total_votes) * 100)}%</span>
-                  <span>Khó: {Math.round((currentStats.hard_count / currentStats.total_votes) * 100)}%</span>
-                </div>
+                Lật thẻ để đánh giá
+              </motion.div>
+            ) : (
+              <motion.div
+                  key="voting"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex gap-2 w-full justify-center"
+                >
+                  {[
+                    { id: 1, label: "DỄ", color: "emerald", icon: ThumbsUp, complexity: "easy" },
+                    { id: 2, label: "VỪA", color: "amber", icon: Meh, complexity: "medium" },
+                    { id: 3, label: "KHÓ", color: "rose", icon: ThumbsDown, complexity: "hard" }
+                  ].map((btn) => (
+                    <button
+                      key={btn.id}
+                      onClick={() => handleRate(btn.complexity as Difficulty)}
+                      disabled={isVoting || showConfirmModal}
+                      className={`flex-1 max-w-[120px] flex flex-col items-center py-2 rounded-xl border transition-all ${userCurrentVote === btn.id
+                        ? `bg-${btn.color}-500 border-${btn.color}-400 text-white shadow-lg shadow-${btn.color}-500/20`
+                        : "bg-slate-800/40 text-slate-400 border-slate-700/50 hover:bg-slate-800/80 font-sans"
+                    }`}
+                    >
+                      <btn.icon className={`w-4 h-4 mb-1 ${userCurrentVote === btn.id ? "animate-pulse" : ""}`} />
+                      <span className="text-[10px] font-bold uppercase tracking-widest">{btn.label}</span>
+                    </button>
+                  ))}
               </motion.div>
             )}
           </AnimatePresence>
         </div>
-      </div>
 
-      {/* SRS Controls / Voting */}
-      <div className="mt-8 w-full max-w-xl relative">
-        <AnimatePresence>
-          {showConfirmModal && (
-            <>
-              {/* Backdrop Overlay */}
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => { setShowConfirmModal(false); setPendingVote(null); }}
-                className="fixed inset-0 bg-black/60 backdrop-blur-[2px] z-[100]"
-              />
+        {/* Navigation Controls - Minimalist */}
+        <div className="w-full flex items-center justify-between gap-4 mt-2 mb-4">
+          <button
+            onClick={handlePrev}
+            disabled={currentIndex === 0 || showConfirmModal}
+            className="p-3 rounded-xl bg-slate-800/50 border border-slate-700/50 text-slate-400 disabled:opacity-20 active:scale-90 transition-all"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
 
-              {/* Modal Container */}
-              <div className="fixed inset-0 z-[110] flex items-center justify-center pointer-events-none px-4">
-                <motion.div
-                  key="confirm-modal"
-                  initial={{ opacity: 0, scale: 0.98, y: 10 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.98, y: 10 }}
-                  transition={{ duration: 0.15 }}
-                  className="bg-slate-900 border border-slate-800 rounded-3xl p-7 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex flex-col items-center gap-6 pointer-events-auto w-full max-w-[360px]"
-                >
-                  <p className="text-base font-medium text-slate-100 text-center uppercase tracking-wide leading-relaxed font-sans">
-                    Bạn muốn thay đổi đánh giá cho thẻ này?
-                  </p>
-                  <div className="flex gap-3 w-full">
-                    <button
-                      onClick={() => { setShowConfirmModal(false); setPendingVote(null); }}
-                      className="flex-1 px-5 py-3 rounded-xl bg-slate-800 text-slate-400 text-xs font-bold hover:bg-slate-700 transition-all active:scale-95 font-sans"
-                    >
-                      HỦY
-                    </button>
-                    <button
-                      onClick={() => pendingVote && handleCommunityVote(pendingVote)}
-                      className="flex-1 px-5 py-3 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-500 shadow-lg shadow-indigo-500/20 transition-all active:scale-95 uppercase font-sans"
-                    >
-                      XÁC NHẬN
-                    </button>
-                  </div>
-                </motion.div>
-              </div>
-            </>
-          )}
-        </AnimatePresence>
+          <div className="flex flex-col items-center">
+            <span className="text-xl font-black text-slate-100 tabular-nums">
+              {currentIndex + 1} <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest ml-1">/ {flashcards.length}</span>
+            </span>
+          </div>
 
-        <AnimatePresence mode="wait">
-          {!isCardFlipped ? (
-            <motion.div
-              key="hint"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="text-center py-5 bg-slate-800/10 rounded-2xl border border-dashed border-slate-800/50 text-slate-500 text-sm font-sans"
-            >
-              Lật thẻ để đánh giá độ khó
-            </motion.div>
-          ) : (
-            <motion.div
-              key="voting-controls"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-                className={`flex items-center justify-center gap-4 transition-all duration-500 ${showConfirmModal ? "blur-md opacity-20 pointer-events-none scale-95" : ""}`}
-            >
-              <button
-                onClick={() => handleRate("easy")}
-                  disabled={isVoting || showConfirmModal}
-                  className={`flex flex-col items-center justify-center w-24 h-24 rounded-2xl transition-all relative overflow-hidden group ${userCurrentVote === 1
-                    ? "bg-emerald-500 text-white shadow-[0_0_20px_rgba(16,185,129,0.3)] ring-2 ring-emerald-400/30"
-                    : "bg-slate-800/40 text-slate-400 border border-slate-700/50 hover:border-emerald-500/50 hover:text-emerald-400 outline-none"
-                    }`}
-                >
-                  <ThumbsUp className={`w-7 h-7 mb-2 transition-transform group-hover:scale-110 ${userCurrentVote === 1 ? "animate-bounce" : ""}`} />
-                  <span className="text-[10px] font-bold uppercase tracking-[0.2em] font-sans">Dễ</span>
-                  {userCurrentVote === 1 && <motion.div layoutId="vote-indicator" className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-white shadow-sm" />}
-                </button>
-
-                <button
-                  onClick={() => handleRate("medium")}
-                  disabled={isVoting || showConfirmModal}
-                  className={`flex flex-col items-center justify-center w-24 h-24 rounded-2xl transition-all relative overflow-hidden group ${userCurrentVote === 2
-                    ? "bg-amber-500 text-white shadow-[0_0_20px_rgba(245,158,11,0.3)] ring-2 ring-amber-400/30"
-                    : "bg-slate-800/40 text-slate-400 border border-slate-700/50 hover:border-amber-500/50 hover:text-amber-400 outline-none"
-                    }`}
-                >
-                  <Meh className={`w-7 h-7 mb-2 transition-transform group-hover:scale-110 ${userCurrentVote === 2 ? "animate-bounce" : ""}`} />
-                  <span className="text-[10px] font-bold uppercase tracking-[0.2em] font-sans">Vừa</span>
-                  {userCurrentVote === 2 && <motion.div layoutId="vote-indicator" className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-white shadow-sm" />}
-                </button>
-
-                <button
-                  onClick={() => handleRate("hard")}
-                  disabled={isVoting || showConfirmModal}
-                  className={`flex flex-col items-center justify-center w-24 h-24 rounded-2xl transition-all relative overflow-hidden group ${userCurrentVote === 3
-                    ? "bg-rose-500 text-white shadow-[0_0_20px_rgba(244,63,94,0.3)] ring-2 ring-rose-400/30"
-                    : "bg-slate-800/40 text-slate-400 border border-slate-700/50 hover:border-rose-500/50 hover:text-rose-400 outline-none"
-                    }`}
-                >
-                  <ThumbsDown className={`w-7 h-7 mb-2 transition-transform group-hover:scale-110 ${userCurrentVote === 3 ? "animate-bounce" : ""}`} />
-                  <span className="text-[10px] font-bold uppercase tracking-[0.2em] font-sans">Khó</span>
-                  {userCurrentVote === 3 && <motion.div layoutId="vote-indicator" className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-white shadow-sm" />}
-                </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      {userCurrentVote && isCardFlipped && (
-        <motion.p
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="text-[9px] text-slate-500 mt-4 font-bold uppercase tracking-[0.1em] font-sans flex items-center gap-1.5"
-        >
-          Trạng thái: <span className={userCurrentVote === 1 ? "text-emerald-500" : userCurrentVote === 2 ? "text-amber-500" : "text-rose-500"}>{userCurrentVote === 1 ? "ĐÃ CHỌN DỄ" : userCurrentVote === 2 ? "ĐÃ CHỌN VỪA" : "ĐÃ CHỌN KHÓ"}</span>
-        </motion.p>
-      )}
-
-      {/* Navigation Controls */}
-      <div className="flex items-center gap-10 mt-10">
-        <button
-          onClick={handlePrev}
-          disabled={currentIndex === 0 || showConfirmModal}
-          className="p-4 rounded-2xl bg-slate-800/40 backdrop-blur-md border border-slate-700/50 hover:bg-slate-700 hover:text-white dark:text-slate-400 disabled:opacity-20 disabled:cursor-not-allowed transition-all active:scale-95 shadow-lg"
-          aria-label="Previous Card"
-        >
-          <ChevronLeft className="w-6 h-6" />
-        </button>
-
-        <div className="flex flex-col items-center min-w-[60px]">
-          <span className="text-3xl font-black text-slate-100 tracking-tighter tabular-nums">
-            {currentIndex + 1}
-          </span>
-          <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">
-            / {flashcards.length}
-          </span>
+          <button
+            onClick={handleNext}
+            disabled={currentIndex === flashcards.length - 1 || showConfirmModal}
+            className="p-3 rounded-xl bg-indigo-600 border border-indigo-400/20 text-white shadow-lg shadow-indigo-500/20 disabled:opacity-20 active:scale-90 transition-all font-sans"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
         </div>
-
-        <button
-          onClick={handleNext}
-          disabled={
-            currentIndex ===
-            flashcards.length - 1 || showConfirmModal
-          }
-          className="p-4 rounded-2xl bg-indigo-600 text-white shadow-xl shadow-indigo-500/20 hover:bg-indigo-500 hover:scale-105 disabled:opacity-20 disabled:shadow-none disabled:bg-slate-800/40 disabled:text-slate-600 disabled:cursor-not-allowed transition-all active:scale-95"
-          aria-label="Next Card"
-        >
-          <ChevronRight className="w-6 h-6" />
-        </button>
       </div>
-
-      <p className="mt-8 text-sm text-gray-400 italic">
-        Tip: Use Arrow keys to navigate
-      </p>
     </div>
   );
 }
