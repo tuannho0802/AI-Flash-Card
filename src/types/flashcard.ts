@@ -25,6 +25,8 @@ export interface FlashcardSet {
   category?: string | null;
   category_id?: string | null;
   categories?: Category | null;
+  avg_rating?: number | null;
+  total_votes?: number | null;
 }
 
 export interface Profile {

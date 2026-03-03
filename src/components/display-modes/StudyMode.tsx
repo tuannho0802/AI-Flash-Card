@@ -29,29 +29,75 @@ export default function StudyMode({
   const [isCardFlipped, setIsCardFlipped] = useState(false);
   const { markAs } = useLearningProgress();
 
+  const [voted, setVoted] = useState<number | null>(null);
+  const [stats, setStats] = useState<any>(null);
+  const [isVoting, setIsVoting] = useState(false);
+
+  // Reset state when card changes
+  useEffect(() => {
+    setIsCardFlipped(false);
+    setVoted(null);
+    setStats(null);
+  }, [currentIndex]);
+
+  const handleCommunityVote = async (rating: number) => {
+    if (isVoting || !flashcards[currentIndex]) return;
+    setIsVoting(true);
+    try {
+      const response = await fetch("/api/vote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          setId: (flashcards[currentIndex] as any).set_id || null, // Assuming set_id is attached to flashcard objects
+          cardIndex: (flashcards[currentIndex] as any).original_index ?? currentIndex,
+          rating
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setVoted(rating);
+        setStats(data.stats);
+      }
+    } catch (err) {
+      console.error("Voting failed:", err);
+    } finally {
+      setIsVoting(false);
+    }
+  };
+
   const handleNext = useCallback(() => {
     if (currentIndex < flashcards.length - 1) {
       setCurrentIndex(currentIndex + 1);
-      setIsCardFlipped(false);
+      setVoted(null);
+      setStats(null);
     }
   }, [currentIndex, flashcards.length]);
 
   const handlePrev = useCallback(() => {
     if (currentIndex > 0) {
       setCurrentIndex(currentIndex - 1);
-      setIsCardFlipped(false);
+      setVoted(null);
+      setStats(null);
     }
   }, [currentIndex]);
 
   const handleRate = useCallback((difficulty: Difficulty) => {
     if (currentIndex >= 0 && currentIndex < flashcards.length) {
       markAs(flashcards[currentIndex].front, difficulty);
+
+      // Also trigger community vote
+      const rating = difficulty === "easy" ? 1 : difficulty === "medium" ? 2 : 3;
+      handleCommunityVote(rating);
+
       if (currentIndex < flashcards.length - 1) {
-        setCurrentIndex((prev) => prev + 1);
-        setIsCardFlipped(false);
+        // Delay moving to next card to show "Thank You" or stats if flipped
+        if (!isCardFlipped) {
+          setCurrentIndex((prev) => prev + 1);
+        }
       }
     }
-  }, [currentIndex, flashcards, markAs]);
+  }, [currentIndex, flashcards, markAs, isCardFlipped]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -135,36 +181,111 @@ export default function StudyMode({
               isFlipped={isCardFlipped}
               onFlip={setIsCardFlipped}
             />
+
+            {/* Community Stats Overlay (Visible when flipped and voted) */}
+            <AnimatePresence>
+              {isCardFlipped && stats && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  className="absolute bottom-4 left-4 right-4 bg-slate-900/80 backdrop-blur-md rounded-xl p-3 border border-white/10 z-20"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Đánh giá cộng đồng ({stats.total_votes})</span>
+                    <div className="flex gap-1">
+                      <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                      <div className="w-2 h-2 rounded-full bg-amber-500" />
+                      <div className="w-2 h-2 rounded-full bg-rose-500" />
+                    </div>
+                  </div>
+                  <div className="flex h-1.5 rounded-full overflow-hidden bg-slate-800">
+                    <div
+                      className="h-full bg-emerald-500 transition-all duration-500"
+                      style={{ width: `${(stats.easy_count / stats.total_votes) * 100}%` }}
+                    />
+                    <div
+                      className="h-full bg-amber-500 transition-all duration-500"
+                      style={{ width: `${(stats.medium_count / stats.total_votes) * 100}%` }}
+                    />
+                    <div
+                      className="h-full bg-rose-500 transition-all duration-500"
+                      style={{ width: `${(stats.hard_count / stats.total_votes) * 100}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between mt-1.5 text-[9px] font-medium text-slate-500">
+                    <span>Dễ: {Math.round((stats.easy_count / stats.total_votes) * 100)}%</span>
+                    <span>Vừa: {Math.round((stats.medium_count / stats.total_votes) * 100)}%</span>
+                    <span>Khó: {Math.round((stats.hard_count / stats.total_votes) * 100)}%</span>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         </AnimatePresence>
       </div>
 
-      {/* SRS Controls */}
-      <div className="flex items-center justify-center gap-4 mt-8">
-        <button
-          onClick={() => handleRate("easy")}
-          className="flex flex-col items-center justify-center w-20 h-20 rounded-xl bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 hover:bg-emerald-600 active:scale-95 transition-all"
-          title="Easy (1)"
-        >
-          <ThumbsUp className="w-6 h-6 mb-1" />
-          <span className="text-xs font-bold">Easy</span>
-        </button>
-        <button
-          onClick={() => handleRate("medium")}
-          className="flex flex-col items-center justify-center w-20 h-20 rounded-xl bg-amber-500 text-white shadow-lg shadow-amber-500/30 hover:bg-amber-600 active:scale-95 transition-all"
-          title="Medium (2)"
-        >
-          <Meh className="w-6 h-6 mb-1" />
-          <span className="text-xs font-bold">Medium</span>
-        </button>
-        <button
-          onClick={() => handleRate("hard")}
-          className="flex flex-col items-center justify-center w-20 h-20 rounded-xl bg-rose-500 text-white shadow-lg shadow-rose-500/30 hover:bg-rose-600 active:scale-95 transition-all"
-          title="Hard (3)"
-        >
-          <ThumbsDown className="w-6 h-6 mb-1" />
-          <span className="text-xs font-bold">Hard</span>
-        </button>
+      {/* SRS Controls / Voting */}
+      <div className="mt-8 w-full max-w-xl">
+        <AnimatePresence mode="wait">
+          {!isCardFlipped ? (
+            <motion.div
+              key="hint"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="text-center py-4 bg-slate-800/20 rounded-2xl border border-dashed border-slate-700 text-slate-500 text-sm"
+            >
+              Lật thẻ để đánh giá độ khó
+            </motion.div>
+          ) : (
+            <motion.div
+              key="voting-controls"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex items-center justify-center gap-4"
+            >
+              <button
+                onClick={() => handleRate("easy")}
+                  disabled={isVoting}
+                  className={`flex flex-col items-center justify-center w-24 h-24 rounded-2xl transition-all relative overflow-hidden group ${voted === 1
+                      ? "bg-emerald-500 text-white shadow-[0_0_20px_rgba(16,185,129,0.4)]"
+                      : "bg-slate-800/40 text-slate-400 border border-slate-700 hover:border-emerald-500/50 hover:text-emerald-400"
+                    }`}
+                >
+                  <ThumbsUp className={`w-7 h-7 mb-1.5 transition-transform group-hover:scale-110 ${voted === 1 ? "animate-bounce" : ""}`} />
+                  <span className="text-xs font-black uppercase tracking-widest">Dễ</span>
+                  {voted === 1 && <motion.div layoutId="vote-indicator" className="absolute top-1 right-1 w-2 h-2 rounded-full bg-white shadow-sm" />}
+                </button>
+
+                <button
+                  onClick={() => handleRate("medium")}
+                  disabled={isVoting}
+                  className={`flex flex-col items-center justify-center w-24 h-24 rounded-2xl transition-all relative overflow-hidden group ${voted === 2
+                      ? "bg-amber-500 text-white shadow-[0_0_20px_rgba(245,158,11,0.4)]"
+                      : "bg-slate-800/40 text-slate-400 border border-slate-700 hover:border-amber-500/50 hover:text-amber-400"
+                    }`}
+                >
+                  <Meh className={`w-7 h-7 mb-1.5 transition-transform group-hover:scale-110 ${voted === 2 ? "animate-bounce" : ""}`} />
+                  <span className="text-xs font-black uppercase tracking-widest">Vừa</span>
+                  {voted === 2 && <motion.div layoutId="vote-indicator" className="absolute top-1 right-1 w-2 h-2 rounded-full bg-white shadow-sm" />}
+                </button>
+
+                <button
+                  onClick={() => handleRate("hard")}
+                  disabled={isVoting}
+                  className={`flex flex-col items-center justify-center w-24 h-24 rounded-2xl transition-all relative overflow-hidden group ${voted === 3
+                      ? "bg-rose-500 text-white shadow-[0_0_20px_rgba(244,63,94,0.4)]"
+                      : "bg-slate-800/40 text-slate-400 border border-slate-700 hover:border-rose-500/50 hover:text-rose-400"
+                    }`}
+                >
+                  <ThumbsDown className={`w-7 h-7 mb-1.5 transition-transform group-hover:scale-110 ${voted === 3 ? "animate-bounce" : ""}`} />
+                  <span className="text-xs font-black uppercase tracking-widest">Khó</span>
+                  {voted === 3 && <motion.div layoutId="vote-indicator" className="absolute top-1 right-1 w-2 h-2 rounded-full bg-white shadow-sm" />}
+                </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Navigation Controls */}

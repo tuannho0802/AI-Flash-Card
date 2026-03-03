@@ -43,6 +43,7 @@ import StudyMode from "@/components/display-modes/StudyMode";
 import ListMode from "@/components/display-modes/ListMode";
 import DisplayController, { DisplayMode } from "@/components/DisplayController";
 import FlashcardSkeleton from "@/components/FlashcardSkeleton";
+import { DifficultyBadge } from "@/components/DifficultyBadge";
 import { smartScrollToTop, containerVariants } from "@/utils/ui-animations";
 
 export default function Home() {
@@ -149,7 +150,11 @@ function FlashcardsApp() {
 
       let query = supabase
         .from("flashcard_sets")
-        .select("*, categories(*)", { count: "exact" }) // Get exact count for pagination
+        .select(`
+          *,
+          categories(*),
+          flashcard_difficulty_stats(avg_rating, total_votes)
+        `, { count: "exact" }) // Get exact count for pagination
         .order("created_at", { ascending: false })
         .range(from, to);
 
@@ -163,7 +168,15 @@ function FlashcardsApp() {
 
       if (error) throw error;
 
-      if (data) setRecentSets(data as FlashcardSet[]);
+      if (data) {
+        // Flatten the difficulty stats for easier use
+        const formattedData = (data as any[]).map(set => ({
+          ...set,
+          avg_rating: set.flashcard_difficulty_stats?.[0]?.avg_rating || null,
+          total_votes: set.flashcard_difficulty_stats?.[0]?.total_votes || 0
+        }));
+        setRecentSets(formattedData as FlashcardSet[]);
+      }
       if (count !== null) setTotalHistoryCount(count);
     } catch (err) {
       console.error("Error fetching history:", err);
@@ -850,7 +863,13 @@ function FlashcardsApp() {
                             key={s.id}
                             onClick={() => {
                               setTopic(s.topic);
-                              setFlashcards(s.cards);
+                              // Attach metadata for voting
+                              const cardsWithMeta = s.cards.map((c, idx) => ({
+                                ...c,
+                                set_id: s.id,
+                                original_index: idx
+                              }));
+                              setFlashcards(cardsWithMeta);
                               setSelectedSetId(s.id);
                               smartScrollToTop();
                             }}
@@ -880,7 +899,8 @@ function FlashcardsApp() {
                           <div className="text-xs text-slate-500">
                             {s.cards.length} cards • {new Date(s.created_at).toLocaleDateString()}
                           </div>
-                          <div className="shrink-0">
+                              <div className="flex items-center gap-2 shrink-0">
+                                <DifficultyBadge avgRating={s.avg_rating ?? null} totalVotes={s.total_votes || 0} />
                             <CategoryBadge category={s.categories} fallbackName={s.category} />
                           </div>
                         </div>
